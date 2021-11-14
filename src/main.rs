@@ -9,7 +9,10 @@ use rustyline::Editor;
 use std::path::PathBuf;
 
 mod format;
+mod input;
+
 use format::highlight_sql;
+use input::EditorHelper;
 
 fn display_value_ref(value: ValueRef) -> String {
     match value {
@@ -34,7 +37,7 @@ struct Opts {
 }
 
 struct App {
-    rl: Editor<()>,
+    rl: Editor<EditorHelper>,
     conn: Connection,
 }
 
@@ -151,7 +154,8 @@ fn main() -> anyhow::Result<()> {
     let opts = Opts::parse();
     let conn = Connection::open(&opts.filename)?;
     // `()` can be used when no completer is required
-    let rl = Editor::<()>::new();
+    let mut rl = Editor::<EditorHelper>::new();
+    rl.set_helper(Some(EditorHelper {}));
 
     let mut app = App { rl, conn };
     app.run()?;

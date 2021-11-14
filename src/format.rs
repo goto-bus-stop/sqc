@@ -1,9 +1,9 @@
 //! Format SQL strings with highlighting.
 
-use tree_sitter::{Parser, Tree};
-use tree_sitter_highlight::{Highlight, Highlighter, HighlightConfiguration, HighlightEvent};
-use termcolor::{Buffer, Color, ColorSpec, WriteColor};
 use std::io::Write;
+use termcolor::{Buffer, Color, ColorSpec, WriteColor};
+use tree_sitter::{Parser, Tree};
+use tree_sitter_highlight::{Highlight, HighlightConfiguration, HighlightEvent, Highlighter};
 
 pub fn parse_sql(sql: &str) -> anyhow::Result<Tree> {
     let mut parser = Parser::new();
@@ -19,9 +19,16 @@ pub fn highlight_sql(sql: &str) -> anyhow::Result<String> {
         include_str!("../../tree-sitter-sqlite/queries/highlights.scm"),
         "",
         "",
-    ).unwrap();
+    )
+    .unwrap();
     sql_config.configure(&[
-                         "keyword", "number", "string", "constant", "comment", "operator", "punctuation",
+        "keyword",
+        "number",
+        "string",
+        "constant",
+        "comment",
+        "operator",
+        "punctuation",
     ]);
 
     let highlights = highlighter.highlight(&sql_config, &sql.as_bytes(), None, |_| None)?;
@@ -38,14 +45,12 @@ pub fn highlight_sql(sql: &str) -> anyhow::Result<String> {
 
     for event in highlights {
         match event? {
-            HighlightEvent::HighlightStart(Highlight(style)) => {
-                match style {
-                    0 => buf.set_color(&keyword)?,
-                    1 => buf.set_color(&number)?,
-                    2 => buf.set_color(&string)?,
-                    4 => buf.set_color(&comment)?,
-                    _ => (),
-                }
+            HighlightEvent::HighlightStart(Highlight(style)) => match style {
+                0 => buf.set_color(&keyword)?,
+                1 => buf.set_color(&number)?,
+                2 => buf.set_color(&string)?,
+                4 => buf.set_color(&comment)?,
+                _ => (),
             },
             HighlightEvent::Source { start, end } => buf.write_all(&sql.as_bytes()[start..end])?,
             HighlightEvent::HighlightEnd => buf.reset()?,
