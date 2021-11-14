@@ -3,7 +3,9 @@
 use std::io::Write;
 use termcolor::{Buffer, Color, ColorSpec, WriteColor};
 use tree_sitter::{Parser, Tree};
-use tree_sitter_highlight::{Highlight, HighlightConfiguration, HighlightEvent, Highlighter};
+use tree_sitter_highlight::{
+    Error as HighlightError, Highlight, HighlightConfiguration, HighlightEvent, Highlighter,
+};
 
 pub fn parse_sql(sql: &str) -> anyhow::Result<Tree> {
     let mut parser = Parser::new();
@@ -32,6 +34,14 @@ pub fn highlight_sql(sql: &str) -> anyhow::Result<String> {
     ]);
 
     let highlights = highlighter.highlight(&sql_config, &sql.as_bytes(), None, |_| None)?;
+
+    to_ansi(sql.as_bytes(), highlights)
+}
+
+pub fn to_ansi(
+    source: &[u8],
+    highlights: impl Iterator<Item = Result<HighlightEvent, HighlightError>>,
+) -> anyhow::Result<String> {
     let mut buf = Buffer::ansi();
 
     let mut keyword = ColorSpec::new();
@@ -52,7 +62,7 @@ pub fn highlight_sql(sql: &str) -> anyhow::Result<String> {
                 4 => buf.set_color(&comment)?,
                 _ => (),
             },
-            HighlightEvent::Source { start, end } => buf.write_all(&sql.as_bytes()[start..end])?,
+            HighlightEvent::Source { start, end } => buf.write_all(&source[start..end])?,
             HighlightEvent::HighlightEnd => buf.reset()?,
         }
     }
