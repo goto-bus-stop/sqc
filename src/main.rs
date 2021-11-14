@@ -6,10 +6,13 @@ use rusqlite::Connection;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
 use std::path::PathBuf;
+use std::rc::Rc;
 
+mod completions;
 mod format;
 mod input;
 
+use completions::Completions;
 use format::highlight_sql;
 use input::EditorHelper;
 
@@ -34,7 +37,7 @@ fn print_sql(sql: &str) -> anyhow::Result<()> {
 
 struct App {
     rl: Editor<EditorHelper>,
-    conn: Connection,
+    conn: Rc<Connection>,
 }
 
 impl App {
@@ -147,17 +150,19 @@ struct Opts {
 
 fn main() -> anyhow::Result<()> {
     let opts = Opts::parse();
-    let conn = match &opts.filename {
+    let conn = Rc::new(match &opts.filename {
         Some(filename) => Connection::open(&filename)?,
         None => Connection::open_in_memory()?,
-    };
+    });
+
+    let completions = Completions::new(Rc::clone(&conn));
 
     let mut rl = Editor::<EditorHelper>::new();
-    rl.set_helper(Some(EditorHelper {
-        name: opts
-            .filename
+    rl.set_helper(Some(EditorHelper::new(
+        opts.filename
             .and_then(|f| f.file_name().map(|os| os.to_string_lossy().to_string())),
-    }));
+        completions,
+    )));
 
     let mut app = App { rl, conn };
     app.run()?;
