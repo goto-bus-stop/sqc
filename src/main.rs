@@ -67,7 +67,9 @@ impl App {
     }
 
     fn execute(&mut self, request: &str) -> anyhow::Result<()> {
-        if request.starts_with(".schema") {
+        if request.starts_with(".tables") {
+            self.execute_tables()
+        } else if request.starts_with(".schema") {
             let mut parts = request.splitn(2, ' ').collect::<Vec<_>>();
             match parts.pop() {
                 None | Some("") | Some(".schema") => anyhow::bail!("provide a table name"),
@@ -76,6 +78,18 @@ impl App {
         } else {
             self.execute_select_query(request)
         }
+    }
+
+    fn execute_tables(&mut self) -> anyhow::Result<()> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name ASC")?;
+        let tables = stmt.query_map([], |row| row.get::<_, String>(0))?;
+        for table in tables {
+            println!("{}", table?);
+        }
+
+        Ok(())
     }
 
     fn execute_schema(&mut self, table_name: &str) -> anyhow::Result<()> {
