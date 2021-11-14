@@ -1,4 +1,5 @@
 use clap::Parser;
+use cli_table::format::{HorizontalLine, Separator, VerticalLine};
 use cli_table::{print_stdout, Cell as _, Style as _, Table as _};
 use itertools::Itertools;
 use rusqlite::types::ValueRef;
@@ -107,7 +108,18 @@ impl App {
                 .collect::<Result<_, _>>()?;
             results.push(table_row);
         }
-        print_stdout(results.table().title(title))?;
+        print_stdout(
+            results
+                .table()
+                .separator(
+                    Separator::builder()
+                        .title(Some(HorizontalLine::default()))
+                        .column(Some(VerticalLine::default()))
+                        .row(None)
+                        .build(),
+                )
+                .title(title),
+        )?;
         Ok(())
     }
 }
