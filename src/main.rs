@@ -30,11 +30,6 @@ fn print_sql(sql: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-#[derive(Parser)]
-struct Opts {
-    filename: PathBuf,
-}
-
 struct App {
     rl: Editor<EditorHelper>,
     conn: Connection,
@@ -138,9 +133,17 @@ impl App {
     }
 }
 
+#[derive(Parser)]
+struct Opts {
+    filename: Option<PathBuf>,
+}
+
 fn main() -> anyhow::Result<()> {
     let opts = Opts::parse();
-    let conn = Connection::open(&opts.filename)?;
+    let conn = match opts.filename {
+        Some(filename) => Connection::open(&filename)?,
+        None => Connection::open_in_memory()?,
+    };
     // `()` can be used when no completer is required
     let mut rl = Editor::<EditorHelper>::new();
     rl.set_helper(Some(EditorHelper {}));
