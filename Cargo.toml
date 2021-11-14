@@ -8,7 +8,7 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0.45"
 clap = "3.0.0-beta.2"
-cli-table = "0.4.6"
+comfy-table = "5.0.0"
 itertools = "0.10.1"
 rusqlite = { version = "0.26.1", features = ["column_decltype"] }
 rustyline = "9.0.0"

@@ -1,6 +1,5 @@
 use clap::Parser;
-use cli_table::format::{HorizontalLine, Separator, VerticalLine};
-use cli_table::{print_stdout, Cell as _, Style as _, Table as _};
+use comfy_table::{Cell, Color, Table, ContentArrangement};
 use itertools::Itertools;
 use rusqlite::types::ValueRef;
 use rusqlite::Connection;
@@ -14,13 +13,13 @@ mod input;
 use format::highlight_sql;
 use input::EditorHelper;
 
-fn display_value_ref(value: ValueRef) -> String {
+fn value_to_cell(value: ValueRef) -> Cell {
     match value {
-        ValueRef::Null => "NULL".to_string(),
-        ValueRef::Integer(n) => n.to_string(),
-        ValueRef::Real(n) => n.to_string(),
-        ValueRef::Text(text) => String::from_utf8_lossy(text).to_string(),
-        ValueRef::Blob(blob) => blob.iter().map(|byte| format!("{:x}", byte)).join(" "),
+        ValueRef::Null => Cell::new("NULL"),
+        ValueRef::Integer(n) => Cell::new(n).fg(Color::Yellow),
+        ValueRef::Real(n) => Cell::new(n).fg(Color::Yellow),
+        ValueRef::Text(text) => Cell::new(String::from_utf8_lossy(text)),
+        ValueRef::Blob(blob) => Cell::new(blob.iter().map(|byte| format!("{:02x}", byte)).join(" ")),
     }
 }
 
@@ -120,32 +119,21 @@ impl App {
             anyhow::bail!("cannot run queries that require bind parameters");
         }
 
-        let title: Vec<_> = stmt
-            .columns()
-            .iter()
-            .map(|column| column.name().cell().bold(true))
-            .collect();
-        let mut results: Vec<Vec<String>> = vec![];
+        let mut table = Table::new();
+        table.load_preset("││──╞══╡│    ──┌┐└┘");
+        table.set_header(stmt.column_names());
+
         let mut query = stmt.query([])?;
         while let Some(row) = query.next()? {
             let columns = 0..row.as_ref().column_count();
             let table_row = columns
-                .map(|index| row.get_ref(index).map(display_value_ref))
-                .collect::<Result<_, _>>()?;
-            results.push(table_row);
+                .map(|index| row.get_ref(index).map(value_to_cell))
+                .collect::<Result<Vec<_>, _>>()?;
+            table.add_row(table_row);
         }
-        print_stdout(
-            results
-                .table()
-                .separator(
-                    Separator::builder()
-                        .title(Some(HorizontalLine::default()))
-                        .column(Some(VerticalLine::default()))
-                        .row(None)
-                        .build(),
-                )
-                .title(title),
-        )?;
+
+        table.set_content_arrangement(ContentArrangement::Dynamic);
+        println!("{}", table);
         Ok(())
     }
 }
