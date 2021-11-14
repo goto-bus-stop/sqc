@@ -9,11 +9,13 @@ edition = "2021"
 anyhow = "1.0.45"
 clap = "3.0.0-beta.2"
 cli-table = "0.4.6"
-colored = "2.0.0"
 itertools = "0.10.1"
 rusqlite = { version = "0.26.1", features = ["column_decltype"] }
 rustyline = "9.0.0"
 sqlformat = "0.1.8"
-sqlparser = "0.12.0"
+termcolor = "1.1.2"
+tree-sitter = "0.20.0"
+tree-sitter-highlight = "0.20.0"
+tree-sitter-sqlite = { path = "../tree-sitter-sqlite" }
 
 [features]

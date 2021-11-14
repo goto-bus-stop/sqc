@@ -6,11 +6,10 @@ use rusqlite::types::ValueRef;
 use rusqlite::Connection;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
-use sqlparser::{dialect::SQLiteDialect, parser::Parser as SQLParser};
 use std::path::PathBuf;
 
 mod format;
-use format::format_sql_statement;
+use format::highlight_sql;
 
 fn display_value_ref(value: ValueRef) -> String {
     match value {
@@ -23,12 +22,9 @@ fn display_value_ref(value: ValueRef) -> String {
 }
 
 fn print_sql(sql: &str) -> anyhow::Result<()> {
-    let sqlite = SQLiteDialect {};
-    let parsed = SQLParser::parse_sql(&sqlite, &sql)?;
-
-    for stmt in parsed {
-        println!("{}", format_sql_statement(stmt)?);
-    }
+    let formatted = sqlformat::format(sql, &Default::default(), Default::default());
+    let highlighted = highlight_sql(&formatted)?;
+    println!("{}", highlighted);
     Ok(())
 }
 
