@@ -1,5 +1,6 @@
 use crate::format::parse_sql;
 use rusqlite::Connection;
+use std::borrow::Cow;
 use std::rc::Rc;
 
 const INITIAL_KEYWORDS: [&str; 15] = [
@@ -9,6 +10,14 @@ const INITIAL_KEYWORDS: [&str; 15] = [
 
 fn starts_with(item: &str, input: &str) -> bool {
     input.len() <= item.len() && item[..input.len()].eq_ignore_ascii_case(input)
+}
+
+fn match_case<'i>(item: &'i str, input: &str) -> Cow<'i, str> {
+    if input.chars().all(|c| c.is_ascii_lowercase()) {
+        item.to_ascii_lowercase().into()
+    } else {
+        item.into()
+    }
 }
 
 pub struct Completions {
@@ -62,7 +71,9 @@ impl Completions {
                         return INITIAL_KEYWORDS
                             .into_iter()
                             .filter(|item| starts_with(item, content))
-                            .map(|item| (node.start_byte(), format!("{} ", item)))
+                            .map(|item| {
+                                (node.start_byte(), format!("{} ", match_case(item, content)))
+                            })
                             .collect();
                     }
                     ("identifier", "table_or_subquery") => {
