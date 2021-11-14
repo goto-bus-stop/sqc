@@ -128,8 +128,9 @@ impl App {
         while let Some(row) = query.next()? {
             let columns = 0..row.as_ref().column_count();
             let table_row = columns
-                .map(|index| row.get_ref(index).map(value_to_cell))
-                .collect::<Result<Vec<_>, _>>()?;
+                // We are iterating over column_count() so this should never fail
+                .map(|index| row.get_ref_unwrap(index))
+                .map(value_to_cell);
             table.add_row(table_row);
         }
 
