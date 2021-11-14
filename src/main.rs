@@ -18,7 +18,7 @@ use input::EditorHelper;
 
 fn value_to_cell(value: ValueRef) -> Cell {
     match value {
-        ValueRef::Null => Cell::new("NULL"),
+        ValueRef::Null => Cell::new("NULL").fg(Color::DarkGrey),
         ValueRef::Integer(n) => Cell::new(n).fg(Color::Yellow),
         ValueRef::Real(n) => Cell::new(n).fg(Color::Yellow),
         ValueRef::Text(text) => Cell::new(String::from_utf8_lossy(text)),
