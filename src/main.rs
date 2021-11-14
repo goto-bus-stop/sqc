@@ -1,5 +1,5 @@
 use clap::Parser;
-use comfy_table::{Cell, Color, Table, ContentArrangement};
+use comfy_table::{Cell, Color, ContentArrangement, Table};
 use itertools::Itertools;
 use rusqlite::types::ValueRef;
 use rusqlite::Connection;
@@ -19,7 +19,9 @@ fn value_to_cell(value: ValueRef) -> Cell {
         ValueRef::Integer(n) => Cell::new(n).fg(Color::Yellow),
         ValueRef::Real(n) => Cell::new(n).fg(Color::Yellow),
         ValueRef::Text(text) => Cell::new(String::from_utf8_lossy(text)),
-        ValueRef::Blob(blob) => Cell::new(blob.iter().map(|byte| format!("{:02x}", byte)).join(" ")),
+        ValueRef::Blob(blob) => {
+            Cell::new(blob.iter().map(|byte| format!("{:02x}", byte)).join(" "))
+        }
     }
 }
 
@@ -38,8 +40,12 @@ struct App {
 impl App {
     fn run(&mut self) -> anyhow::Result<()> {
         let _ = self.rl.load_history("history.txt");
+        let prompt = format!(
+            "{}> ",
+            self.rl.helper().unwrap().name().unwrap_or(":memory:")
+        );
         loop {
-            let readline = self.rl.readline(">> ");
+            let readline = self.rl.readline(&prompt);
             match readline {
                 Ok(line) => {
                     self.rl.add_history_entry(line.as_str());
@@ -140,13 +146,17 @@ struct Opts {
 
 fn main() -> anyhow::Result<()> {
     let opts = Opts::parse();
-    let conn = match opts.filename {
+    let conn = match &opts.filename {
         Some(filename) => Connection::open(&filename)?,
         None => Connection::open_in_memory()?,
     };
-    // `()` can be used when no completer is required
+
     let mut rl = Editor::<EditorHelper>::new();
-    rl.set_helper(Some(EditorHelper {}));
+    rl.set_helper(Some(EditorHelper {
+        name: opts
+            .filename
+            .and_then(|f| f.file_name().map(|os| os.to_string_lossy().to_string())),
+    }));
 
     let mut app = App { rl, conn };
     app.run()?;

@@ -7,7 +7,15 @@ use std::borrow::Cow;
 
 use crate::format::highlight_sql;
 
-pub struct EditorHelper {}
+pub struct EditorHelper {
+    pub name: Option<String>,
+}
+
+impl EditorHelper {
+    pub fn name(&self) -> Option<&str> {
+        self.name.as_deref()
+    }
+}
 
 impl Highlighter for EditorHelper {
     fn highlight<'l>(&self, line: &'l str, _pos: usize) -> Cow<'l, str> {
