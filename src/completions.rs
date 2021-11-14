@@ -2,7 +2,7 @@ use crate::format::parse_sql;
 use rusqlite::Connection;
 use std::rc::Rc;
 
-const INITIAL_KEYWORDS: [&'static str; 15] = [
+const INITIAL_KEYWORDS: [&str; 15] = [
     "SELECT", "DELETE", "CREATE", "DROP", "ATTACH", "DETACH", "EXPLAIN", "PRAGMA", "WITH",
     "UPDATE", "ALTER", "BEGIN", "END", "COMMIT", "ROLLBACK",
 ];

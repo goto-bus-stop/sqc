@@ -33,11 +33,13 @@ pub fn highlight_sql(sql: &str) -> anyhow::Result<String> {
         "punctuation",
     ]);
 
-    let highlights = highlighter.highlight(&sql_config, &sql.as_bytes(), None, |_| None)?;
+    let highlights = highlighter.highlight(&sql_config, sql.as_bytes(), None, |_| None)?;
 
     to_ansi(sql.as_bytes(), highlights)
 }
 
+/// Turn highlights into ANSI sequences. Accepts highlights in any language, but the name order
+/// needs to match.
 pub fn to_ansi(
     source: &[u8],
     highlights: impl Iterator<Item = Result<HighlightEvent, HighlightError>>,

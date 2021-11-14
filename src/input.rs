@@ -31,7 +31,7 @@ impl Highlighter for EditorHelper {
     }
 
     fn highlight_hint<'h>(&self, hint: &'h str) -> Cow<'h, str> {
-        format!("{}", hint).into()
+        hint.into()
     }
 
     fn highlight_char(&self, line: &str, _pos: usize) -> bool {

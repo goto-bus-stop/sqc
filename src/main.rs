@@ -114,7 +114,7 @@ impl App {
 
         print_sql(sql)?;
 
-        return Ok(());
+        Ok(())
     }
 
     fn execute_select_query(&mut self, sql: &str) -> anyhow::Result<()> {
