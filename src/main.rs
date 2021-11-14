@@ -123,6 +123,12 @@ impl App {
             anyhow::bail!("cannot run queries that require bind parameters");
         }
 
+        if sql.starts_with("INSERT") || sql.starts_with("UPDATE") || sql.starts_with("DELETE") || sql.starts_with("CREATE") {
+            let changes = stmt.execute([])?;
+            println!("{} changes", changes);
+            return Ok(())
+        }
+
         let mut table = Table::new();
         table.load_preset("││──╞══╡│    ──┌┐└┘");
         table.set_header(stmt.column_names());
