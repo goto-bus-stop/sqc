@@ -6,7 +6,11 @@ use rusqlite::types::ValueRef;
 use rusqlite::Connection;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
+use sqlparser::{dialect::SQLiteDialect, parser::Parser as SQLParser};
 use std::path::PathBuf;
+
+mod format;
+use format::format_sql_statement;
 
 fn display_value_ref(value: ValueRef) -> String {
     match value {
@@ -16,6 +20,16 @@ fn display_value_ref(value: ValueRef) -> String {
         ValueRef::Text(text) => String::from_utf8_lossy(text).to_string(),
         ValueRef::Blob(blob) => blob.iter().map(|byte| format!("{:x}", byte)).join(" "),
     }
+}
+
+fn print_sql(sql: &str) -> anyhow::Result<()> {
+    let sqlite = SQLiteDialect {};
+    let parsed = SQLParser::parse_sql(&sqlite, &sql)?;
+
+    for stmt in parsed {
+        println!("{}", format_sql_statement(stmt)?);
+    }
+    Ok(())
 }
 
 #[derive(Parser)]
@@ -82,8 +96,7 @@ impl App {
             anyhow::bail!("sqlite_schema table does not contain `text` for some reason?");
         };
 
-        let formatted = sqlformat::format(sql, &Default::default(), Default::default());
-        println!("{}", formatted);
+        print_sql(sql)?;
 
         return Ok(());
     }
