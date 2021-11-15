@@ -31,7 +31,19 @@ impl Highlighter for EditorHelper {
     }
 
     fn highlight_hint<'h>(&self, hint: &'h str) -> Cow<'h, str> {
-        hint.into()
+        use std::io::Write;
+        use termcolor::{Buffer, Color, ColorSpec, WriteColor};
+
+        let mut grey = ColorSpec::new();
+        grey.set_fg(Some(Color::Ansi256(8))).set_bold(true);
+        let mut buf = Buffer::ansi();
+        let _ = buf.set_color(&grey);
+        let _ = buf.write_all(hint.as_bytes());
+        let _ = buf.reset();
+
+        String::from_utf8(buf.into_inner())
+            .map(Cow::Owned)
+            .unwrap_or(Cow::Borrowed(hint))
     }
 
     fn highlight_char(&self, line: &str, _pos: usize) -> bool {
