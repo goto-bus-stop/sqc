@@ -144,7 +144,19 @@ impl App {
         }
 
         table.set_content_arrangement(ContentArrangement::Dynamic);
-        println!("{}", table);
+
+        if table.get_row(100).is_some() {
+            use std::io::Write;
+            use std::process::{Command, Stdio};
+            let mut command = Command::new("less")
+                .stdin(Stdio::piped())
+                .env("LESSCHARSET", "UTF-8")
+                .spawn()?;
+            writeln!(command.stdin.as_mut().unwrap(), "{}", table)?;
+            command.wait()?;
+        } else {
+            println!("{}", table);
+        }
         Ok(())
     }
 }
