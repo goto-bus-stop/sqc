@@ -56,7 +56,7 @@ impl App {
                         println!("Error: {:?}", err);
                     }
                 }
-                Err(ReadlineError::Interrupted) => break,
+                Err(ReadlineError::Interrupted) => continue,
                 Err(ReadlineError::Eof) => break,
                 Err(err) => {
                     println!("Error: {:?}", err);
