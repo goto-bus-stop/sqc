@@ -27,6 +27,10 @@ fn value_to_cell(value: ValueRef) -> Cell {
     }
 }
 
+fn text_provider(input: &str) -> impl tree_sitter::TextProvider<'_> {
+    |node: tree_sitter::Node<'_>| std::iter::once(input[node.byte_range()].as_bytes())
+}
+
 struct App {
     rl: Editor<EditorHelper>,
     conn: Rc<Connection>,
@@ -73,11 +77,52 @@ impl App {
                 None | Some("") | Some(".schema") => anyhow::bail!("provide a table name"),
                 Some(table_name) => self.execute_schema(table_name),
             }
+        } else if request.starts_with(".parse") {
+            let parts = request.splitn(2, ' ').collect::<Vec<_>>();
+            if parts.len() < 2 {
+                anyhow::bail!("provide a query to parse");
+            }
+            let tree = crate::format::parse_sql(parts[1])?;
+            println!("tree = {}", tree.root_node().to_sexp());
+            Ok(())
         } else {
-            self.execute_select_query(request)
+            use tree_sitter::{Query, QueryCursor};
+
+            let tree = crate::format::parse_sql(request)?;
+            let statements_query = Query::new(
+                tree_sitter_sqlite::language(),
+                "(sql_stmt_list (sql_stmt) @stmt)",
+            )
+            .unwrap();
+            let mut cursor = QueryCursor::new();
+            for stmt in cursor.matches(&statements_query, tree.root_node(), text_provider(request))
+            {
+                let stmt_node = stmt.captures[0].node;
+                let sql = &request[stmt_node.byte_range()];
+                let kind = stmt_node.child(0).map(|node| node.kind());
+                match kind {
+                    Some("update_stmt" | "delete_stmt" | "insert_stmt") => {
+                        self.execute_update_query(sql)?
+                    }
+                    Some(
+                        "create_index_stmt"
+                        | "create_table_stmt"
+                        | "create_trigger_stmt"
+                        | "create_view_stmt"
+                        | "create_virtual_table_stmt"
+                        | "drop_index_stmt"
+                        | "drop_table_stmt"
+                        | "drop_trigger_stmt"
+                        | "drop_view_stmt",
+                    ) => self.execute_silent_query(sql)?,
+                    Some(_) | None => self.execute_select_query(sql)?,
+                }
+            }
+            Ok(())
         }
     }
 
+    /// Execute a .tables command.
     fn execute_tables(&mut self) -> anyhow::Result<()> {
         let mut stmt = self
             .conn
@@ -90,6 +135,7 @@ impl App {
         Ok(())
     }
 
+    /// Execute a .schema command.
     fn execute_schema(&mut self, table_name: &str) -> anyhow::Result<()> {
         let mut stmt = self
             .conn
@@ -116,20 +162,36 @@ impl App {
         Ok(())
     }
 
-    fn execute_select_query(&mut self, sql: &str) -> anyhow::Result<()> {
+    /// Execute an UPDATE, DELETE or INSERT query.
+    fn execute_update_query(&mut self, sql: &str) -> anyhow::Result<()> {
         let mut stmt = self.conn.prepare(sql)?;
         if stmt.parameter_count() > 0 {
             anyhow::bail!("cannot run queries that require bind parameters");
         }
 
-        if sql.starts_with("INSERT")
-            || sql.starts_with("UPDATE")
-            || sql.starts_with("DELETE")
-            || sql.starts_with("CREATE")
-        {
-            let changes = stmt.execute([])?;
-            println!("{} changes", changes);
-            return Ok(());
+        let changes = stmt.execute([])?;
+        println!("{} changes", changes);
+
+        Ok(())
+    }
+
+    /// Execute a query that does not return anything.
+    fn execute_silent_query(&mut self, sql: &str) -> anyhow::Result<()> {
+        let mut stmt = self.conn.prepare(sql)?;
+        if stmt.parameter_count() > 0 {
+            anyhow::bail!("cannot run queries that require bind parameters");
+        }
+
+        let _ = stmt.execute([])?;
+
+        Ok(())
+    }
+
+    /// Execute a SELECT query.
+    fn execute_select_query(&mut self, sql: &str) -> anyhow::Result<()> {
+        let mut stmt = self.conn.prepare(sql)?;
+        if stmt.parameter_count() > 0 {
+            anyhow::bail!("cannot run queries that require bind parameters");
         }
 
         let mut table = Table::new();
