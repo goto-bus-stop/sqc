@@ -15,6 +15,14 @@ mod input;
 use completions::Completions;
 use input::EditorHelper;
 
+// Based on https://docs.rs/once_cell/1.8.0/once_cell/#lazily-compiled-regex
+macro_rules! tree_sitter_query {
+    ($query:literal $(,)?) => {{
+        static QUERY: once_cell::sync::OnceCell<tree_sitter::Query> = once_cell::sync::OnceCell::new();
+        QUERY.get_or_init(|| tree_sitter::Query::new(tree_sitter_sqlite::language(), $query).unwrap())
+    }};
+}
+
 fn value_to_cell(value: ValueRef) -> Cell {
     match value {
         ValueRef::Null => Cell::new("NULL").fg(Color::DarkGrey),
@@ -86,16 +94,10 @@ impl App {
             println!("tree = {}", tree.root_node().to_sexp());
             Ok(())
         } else {
-            use tree_sitter::{Query, QueryCursor};
-
             let tree = crate::format::parse_sql(request)?;
-            let statements_query = Query::new(
-                tree_sitter_sqlite::language(),
-                "(sql_stmt_list (sql_stmt) @stmt)",
-            )
-            .unwrap();
-            let mut cursor = QueryCursor::new();
-            for stmt in cursor.matches(&statements_query, tree.root_node(), text_provider(request))
+            let statements_query = tree_sitter_query!("(sql_stmt_list (sql_stmt) @stmt)");
+            let mut cursor = tree_sitter::QueryCursor::new();
+            for stmt in cursor.matches(statements_query, tree.root_node(), text_provider(request))
             {
                 let stmt_node = stmt.captures[0].node;
                 let sql = &request[stmt_node.byte_range()];
@@ -240,7 +242,7 @@ fn main() -> anyhow::Result<()> {
 
     let completions = Completions::new(Rc::clone(&conn));
 
-    let mut rl = Editor::<EditorHelper>::new();
+    let mut rl = Editor::new();
     rl.set_helper(Some(EditorHelper::new(
         opts.filename
             .and_then(|f| f.file_name().map(|os| os.to_string_lossy().to_string())),

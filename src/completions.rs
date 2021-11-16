@@ -33,7 +33,7 @@ impl Completions {
     fn get_table_names(&self) -> Vec<String> {
         let mut stmt = self
             .connection
-            .prepare("SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name ASC")
+            .prepare_cached("SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name ASC")
             .unwrap();
         let tables = stmt
             .query_map([], |row| row.get(0))
