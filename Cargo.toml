@@ -1,5 +1,5 @@
 [package]
-name = "sqlite-cli"
+name = "sqc"
 version = "0.1.0"
 edition = "2021"
 

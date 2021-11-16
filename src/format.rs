@@ -1,5 +1,6 @@
 //! Format SQL strings with highlighting.
 
+use std::cell::RefCell;
 use std::io::Write;
 use termcolor::{Buffer, Color, ColorSpec, WriteColor};
 use tree_sitter::{Parser, Tree};
@@ -7,35 +8,57 @@ use tree_sitter_highlight::{
     Error as HighlightError, Highlight, HighlightConfiguration, HighlightEvent, Highlighter,
 };
 
+const QUERY_NAMES: [&str; 7] = [
+    "keyword",
+    "number",
+    "string",
+    "constant",
+    "comment",
+    "operator",
+    "punctuation",
+];
+
+pub struct SQLHighlighter {
+    highlighter: RefCell<Highlighter>,
+    sql_config: HighlightConfiguration,
+}
+
+impl SQLHighlighter {
+    pub fn new() -> Self {
+        let highlighter = Highlighter::new();
+        let mut sql_config = HighlightConfiguration::new(
+            tree_sitter_sqlite::language(),
+            include_str!("../../tree-sitter-sqlite/queries/highlights.scm"),
+            "",
+            "",
+        )
+        .unwrap();
+        sql_config.configure(&QUERY_NAMES);
+
+        Self {
+            highlighter: RefCell::new(highlighter),
+            sql_config,
+        }
+    }
+
+    pub fn highlight(&self, sql: &str) -> anyhow::Result<String> {
+        let mut highlighter = self.highlighter.borrow_mut();
+        let highlights = highlighter.highlight(&self.sql_config, sql.as_bytes(), None, |_| None)?;
+        to_ansi(sql.as_bytes(), highlights)
+    }
+}
+
+impl Default for SQLHighlighter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 pub fn parse_sql(sql: &str) -> anyhow::Result<Tree> {
     let mut parser = Parser::new();
     parser.set_language(tree_sitter_sqlite::language())?;
     let tree = parser.parse(sql, None).unwrap();
     Ok(tree)
-}
-
-pub fn highlight_sql(sql: &str) -> anyhow::Result<String> {
-    let mut highlighter = Highlighter::new();
-    let mut sql_config = HighlightConfiguration::new(
-        tree_sitter_sqlite::language(),
-        include_str!("../../tree-sitter-sqlite/queries/highlights.scm"),
-        "",
-        "",
-    )
-    .unwrap();
-    sql_config.configure(&[
-        "keyword",
-        "number",
-        "string",
-        "constant",
-        "comment",
-        "operator",
-        "punctuation",
-    ]);
-
-    let highlights = highlighter.highlight(&sql_config, sql.as_bytes(), None, |_| None)?;
-
-    to_ansi(sql.as_bytes(), highlights)
 }
 
 /// Turn highlights into ANSI sequences. Accepts highlights in any language, but the name order

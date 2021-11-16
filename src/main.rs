@@ -13,7 +13,6 @@ mod format;
 mod input;
 
 use completions::Completions;
-use format::highlight_sql;
 use input::EditorHelper;
 
 fn value_to_cell(value: ValueRef) -> Cell {
@@ -26,13 +25,6 @@ fn value_to_cell(value: ValueRef) -> Cell {
             Cell::new(blob.iter().map(|byte| format!("{:02x}", byte)).join(" "))
         }
     }
-}
-
-fn print_sql(sql: &str) -> anyhow::Result<()> {
-    let formatted = sqlformat::format(sql, &Default::default(), Default::default());
-    let highlighted = highlight_sql(&formatted)?;
-    println!("{}", highlighted);
-    Ok(())
 }
 
 struct App {
@@ -66,6 +58,10 @@ impl App {
         }
         self.rl.save_history("history.txt")?;
         Ok(())
+    }
+
+    fn helper(&self) -> &EditorHelper {
+        self.rl.helper().unwrap()
     }
 
     fn execute(&mut self, request: &str) -> anyhow::Result<()> {
@@ -112,7 +108,10 @@ impl App {
             anyhow::bail!("sqlite_schema table does not contain `text` for some reason?");
         };
 
-        print_sql(sql)?;
+        let highlighter = &self.helper().highlighter;
+        let formatted = sqlformat::format(sql, &Default::default(), Default::default());
+        let highlighted = highlighter.highlight(&formatted)?;
+        println!("{}", highlighted);
 
         Ok(())
     }
@@ -123,10 +122,14 @@ impl App {
             anyhow::bail!("cannot run queries that require bind parameters");
         }
 
-        if sql.starts_with("INSERT") || sql.starts_with("UPDATE") || sql.starts_with("DELETE") || sql.starts_with("CREATE") {
+        if sql.starts_with("INSERT")
+            || sql.starts_with("UPDATE")
+            || sql.starts_with("DELETE")
+            || sql.starts_with("CREATE")
+        {
             let changes = stmt.execute([])?;
             println!("{} changes", changes);
-            return Ok(())
+            return Ok(());
         }
 
         let mut table = Table::new();

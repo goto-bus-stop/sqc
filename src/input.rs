@@ -1,5 +1,5 @@
 use crate::completions::Completions;
-use crate::format::highlight_sql;
+use crate::format::SQLHighlighter;
 use rustyline::completion::Completer;
 use rustyline::highlight::Highlighter;
 use rustyline::hint::Hinter;
@@ -10,11 +10,16 @@ use std::borrow::Cow;
 pub struct EditorHelper {
     name: Option<String>,
     completions: Completions,
+    pub highlighter: SQLHighlighter,
 }
 
 impl EditorHelper {
     pub fn new(name: Option<String>, completions: Completions) -> Self {
-        Self { name, completions }
+        Self {
+            name,
+            completions,
+            highlighter: Default::default(),
+        }
     }
 
     pub fn name(&self) -> Option<&str> {
@@ -24,7 +29,7 @@ impl EditorHelper {
 
 impl Highlighter for EditorHelper {
     fn highlight<'l>(&self, line: &'l str, _pos: usize) -> Cow<'l, str> {
-        match highlight_sql(line) {
+        match self.highlighter.highlight(line) {
             Ok(highlighted) => highlighted.into(),
             Err(_) => line.into(),
         }
