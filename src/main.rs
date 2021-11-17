@@ -250,7 +250,10 @@ impl App {
 
 #[derive(Parser)]
 struct Opts {
+    /// Filename of the database to open. If omitted, sqc opens a temporary in-memory database.
     filename: Option<PathBuf>,
+    /// Queries to execute on the database. If omitted, sqc enters interactive mode.
+    queries: Vec<String>,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -274,7 +277,14 @@ fn main() -> anyhow::Result<()> {
         conn,
         output_rows: Box::new(TableOutput::default()),
     };
-    app.run()?;
+
+    if opts.queries.is_empty() {
+        app.run()?;
+    } else {
+        for query in opts.queries {
+            app.execute(&query)?;
+        }
+    }
 
     Ok(())
 }
