@@ -18,8 +18,11 @@ use input::EditorHelper;
 // Based on https://docs.rs/once_cell/1.8.0/once_cell/#lazily-compiled-regex
 macro_rules! tree_sitter_query {
     ($query:literal $(,)?) => {{
-        static QUERY: once_cell::sync::OnceCell<tree_sitter::Query> = once_cell::sync::OnceCell::new();
-        QUERY.get_or_init(|| tree_sitter::Query::new(tree_sitter_sqlite::language(), $query).unwrap())
+        static QUERY: once_cell::sync::OnceCell<tree_sitter::Query> =
+            once_cell::sync::OnceCell::new();
+        QUERY.get_or_init(|| {
+            tree_sitter::Query::new(tree_sitter_sqlite::language(), $query).unwrap()
+        })
     }};
 }
 
@@ -77,28 +80,25 @@ impl App {
     }
 
     fn execute(&mut self, request: &str) -> anyhow::Result<()> {
-        if request.starts_with(".tables") {
-            self.execute_tables()
-        } else if request.starts_with(".schema") {
-            let mut parts = request.splitn(2, ' ').collect::<Vec<_>>();
-            match parts.pop() {
-                None | Some("") | Some(".schema") => anyhow::bail!("provide a table name"),
-                Some(table_name) => self.execute_schema(table_name),
-            }
-        } else if request.starts_with(".parse") {
+        if request.starts_with(".") {
             let parts = request.splitn(2, ' ').collect::<Vec<_>>();
-            if parts.len() < 2 {
-                anyhow::bail!("provide a query to parse");
+            match &parts[..] {
+                [".tables"] => self.execute_tables(),
+                [".schema"] => anyhow::bail!("provide a table name"),
+                [".schema", table_name] => self.execute_schema(table_name),
+                [".parse"] => anyhow::bail!("provide a query to parse"),
+                [".parse", sql] => {
+                    let tree = crate::format::parse_sql(sql)?;
+                    println!("tree = {}", tree.root_node().to_sexp());
+                    Ok(())
+                }
+                _ => anyhow::bail!("unknown dot command"),
             }
-            let tree = crate::format::parse_sql(parts[1])?;
-            println!("tree = {}", tree.root_node().to_sexp());
-            Ok(())
         } else {
             let tree = crate::format::parse_sql(request)?;
             let statements_query = tree_sitter_query!("(sql_stmt_list (sql_stmt) @stmt)");
             let mut cursor = tree_sitter::QueryCursor::new();
-            for stmt in cursor.matches(statements_query, tree.root_node(), text_provider(request))
-            {
+            for stmt in cursor.matches(statements_query, tree.root_node(), text_provider(request)) {
                 let stmt_node = stmt.captures[0].node;
                 let sql = &request[stmt_node.byte_range()];
                 let kind = stmt_node.child(0).map(|node| node.kind());
