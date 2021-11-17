@@ -1,6 +1,4 @@
 use clap::Parser;
-use comfy_table::{Cell, Color, ContentArrangement, Table};
-use itertools::Itertools;
 use rusqlite::types::ValueRef;
 use rusqlite::Connection;
 use rustyline::error::ReadlineError;
@@ -11,9 +9,11 @@ use std::rc::Rc;
 mod completions;
 mod highlight;
 mod input;
+mod output;
 
 use completions::Completions;
 use input::EditorHelper;
+use output::{OutputRows, SQLOutput, TableOutput};
 
 // Based on https://docs.rs/once_cell/1.8.0/once_cell/#lazily-compiled-regex
 macro_rules! tree_sitter_query {
@@ -26,18 +26,6 @@ macro_rules! tree_sitter_query {
     }};
 }
 
-fn value_to_cell(value: ValueRef) -> Cell {
-    match value {
-        ValueRef::Null => Cell::new("NULL").fg(Color::DarkGrey),
-        ValueRef::Integer(n) => Cell::new(n).fg(Color::Yellow),
-        ValueRef::Real(n) => Cell::new(n).fg(Color::Yellow),
-        ValueRef::Text(text) => Cell::new(String::from_utf8_lossy(text)),
-        ValueRef::Blob(blob) => {
-            Cell::new(blob.iter().map(|byte| format!("{:02x}", byte)).join(" "))
-        }
-    }
-}
-
 fn text_provider(input: &str) -> impl tree_sitter::TextProvider<'_> {
     |node: tree_sitter::Node<'_>| std::iter::once(input[node.byte_range()].as_bytes())
 }
@@ -45,6 +33,7 @@ fn text_provider(input: &str) -> impl tree_sitter::TextProvider<'_> {
 struct App {
     rl: Editor<EditorHelper>,
     conn: Rc<Connection>,
+    output_rows: Box<dyn OutputRows>,
 }
 
 impl App {
@@ -192,35 +181,20 @@ impl App {
             println!("{}", highlighter.highlight(&formatted)?);
 
             let mut rows_stmt = self.conn.prepare(&format!("SELECT * FROM {}", &name))?;
-            let cols = rows_stmt.column_count();
+
+            let mut output_rows = SQLOutput {
+                table_name: name,
+                highlighted: true,
+                highlighter,
+                num_columns: 0,
+            };
+
+            output_rows.begin(&rows_stmt.columns())?;
             let mut rows_query = rows_stmt.query([])?;
             while let Some(row) = rows_query.next()? {
-                let mut sql = format!("INSERT INTO {} VALUES(", &name);
-                for index in 0..cols {
-                    use std::fmt::Write;
-                    if index > 0 {
-                        sql.push_str(", ");
-                    }
-                    match row.get_ref(index)? {
-                        ValueRef::Null => sql.push_str("NULL"),
-                        ValueRef::Integer(n) => write!(&mut sql, "{}", n).unwrap(),
-                        ValueRef::Real(n) => write!(&mut sql, "{}", n).unwrap(),
-                        ValueRef::Text(text) => {
-                            write!(&mut sql, "'{}'", std::str::from_utf8(text).unwrap()).unwrap()
-                        }
-                        ValueRef::Blob(blob) => write!(
-                            &mut sql,
-                            "X'{}'",
-                            blob.iter()
-                                .map(|byte| format!("{:02x}", byte))
-                                .collect::<String>()
-                        )
-                        .unwrap(),
-                    }
-                }
-                sql.push_str(");");
-                println!("{}", highlighter.highlight(&sql)?);
+                output_rows.add_row(row)?;
             }
+            output_rows.finish()?;
 
             opt_row = tables_query.next()?;
         }
@@ -261,34 +235,15 @@ impl App {
             anyhow::bail!("cannot run queries that require bind parameters");
         }
 
-        let mut table = Table::new();
-        table.load_preset("││──╞══╡│    ──┌┐└┘");
-        table.set_header(stmt.column_names());
+        self.output_rows.begin(&stmt.columns())?;
 
         let mut query = stmt.query([])?;
         while let Some(row) = query.next()? {
-            let columns = 0..row.as_ref().column_count();
-            let table_row = columns
-                // We are iterating over column_count() so this should never fail
-                .map(|index| row.get_ref_unwrap(index))
-                .map(value_to_cell);
-            table.add_row(table_row);
+            self.output_rows.add_row(row)?;
         }
 
-        table.set_content_arrangement(ContentArrangement::Dynamic);
+        self.output_rows.finish()?;
 
-        if table.get_row(100).is_some() {
-            use std::io::Write;
-            use std::process::{Command, Stdio};
-            let mut command = Command::new("less")
-                .stdin(Stdio::piped())
-                .env("LESSCHARSET", "UTF-8")
-                .spawn()?;
-            writeln!(command.stdin.as_mut().unwrap(), "{}", table)?;
-            command.wait()?;
-        } else {
-            println!("{}", table);
-        }
         Ok(())
     }
 }
@@ -314,7 +269,11 @@ fn main() -> anyhow::Result<()> {
         completions,
     )));
 
-    let mut app = App { rl, conn };
+    let mut app = App {
+        rl,
+        conn,
+        output_rows: Box::new(TableOutput::default()),
+    };
     app.run()?;
 
     Ok(())
