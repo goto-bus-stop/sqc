@@ -6,6 +6,8 @@ use rustyline::Editor;
 use std::path::PathBuf;
 use std::rc::Rc;
 
+#[macro_use]
+mod macros;
 mod completions;
 mod highlight;
 mod input;
@@ -14,17 +16,6 @@ mod output;
 use completions::Completions;
 use input::EditorHelper;
 use output::{OutputRows, SQLOutput, TableOutput};
-
-// Based on https://docs.rs/once_cell/1.8.0/once_cell/#lazily-compiled-regex
-macro_rules! tree_sitter_query {
-    ($query:literal $(,)?) => {{
-        static QUERY: once_cell::sync::OnceCell<tree_sitter::Query> =
-            once_cell::sync::OnceCell::new();
-        QUERY.get_or_init(|| {
-            tree_sitter::Query::new(tree_sitter_sqlite::language(), $query).unwrap()
-        })
-    }};
-}
 
 fn text_provider(input: &str) -> impl tree_sitter::TextProvider<'_> {
     |node: tree_sitter::Node<'_>| std::iter::once(input[node.byte_range()].as_bytes())
@@ -69,7 +60,7 @@ impl App {
     }
 
     fn execute(&mut self, request: &str) -> anyhow::Result<()> {
-        if request.starts_with(".") {
+        if request.starts_with('.') {
             let parts = request.splitn(2, ' ').collect::<Vec<_>>();
             match &parts[..] {
                 [".tables"] => self.execute_tables(),
