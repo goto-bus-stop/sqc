@@ -1,5 +1,5 @@
 use crate::completions::Completions;
-use crate::format::SQLHighlighter;
+use crate::highlight::SQLHighlighter;
 use rustyline::completion::Completer;
 use rustyline::highlight::Highlighter;
 use rustyline::hint::Hinter;

@@ -1,4 +1,4 @@
-use crate::format::parse_sql;
+use crate::highlight::parse_sql;
 use rusqlite::Connection;
 use std::borrow::Cow;
 use std::rc::Rc;

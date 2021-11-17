@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 mod completions;
-mod format;
+mod highlight;
 mod input;
 
 use completions::Completions;
@@ -88,7 +88,7 @@ impl App {
                 [".schema", table_name] => self.execute_schema(table_name),
                 [".parse"] => anyhow::bail!("provide a query to parse"),
                 [".parse", sql] => {
-                    let tree = crate::format::parse_sql(sql)?;
+                    let tree = crate::highlight::parse_sql(sql)?;
                     println!("tree = {}", tree.root_node().to_sexp());
                     Ok(())
                 }
@@ -97,7 +97,7 @@ impl App {
                 _ => anyhow::bail!("unknown dot command"),
             }
         } else {
-            let tree = crate::format::parse_sql(request)?;
+            let tree = crate::highlight::parse_sql(request)?;
             let statements_query = tree_sitter_query!("(sql_stmt_list (sql_stmt) @stmt)");
             let mut cursor = tree_sitter::QueryCursor::new();
             for stmt in cursor.matches(statements_query, tree.root_node(), text_provider(request)) {
@@ -167,8 +167,12 @@ impl App {
     }
 
     fn execute_dump(&mut self, filter: Option<&str>) -> anyhow::Result<()> {
-        let mut tables_stmt = self.conn.prepare_cached("SELECT name, sql FROM sqlite_schema WHERE type = 'table' AND tbl_name LIKE ?")?;
-        let mut tables_query = tables_stmt.query([filter.map(|name| format!("%{}%", name)).unwrap_or_else(|| "%".to_string())])?;
+        let mut tables_stmt = self.conn.prepare_cached(
+            "SELECT name, sql FROM sqlite_schema WHERE type = 'table' AND tbl_name LIKE ?",
+        )?;
+        let mut tables_query = tables_stmt.query([filter
+            .map(|name| format!("%{}%", name))
+            .unwrap_or_else(|| "%".to_string())])?;
         let mut opt_row = if let Some(row) = tables_query.next()? {
             Some(row)
         } else {
@@ -201,8 +205,17 @@ impl App {
                         ValueRef::Null => sql.push_str("NULL"),
                         ValueRef::Integer(n) => write!(&mut sql, "{}", n).unwrap(),
                         ValueRef::Real(n) => write!(&mut sql, "{}", n).unwrap(),
-                        ValueRef::Text(text) => write!(&mut sql, "'{}'", std::str::from_utf8(text).unwrap()).unwrap(),
-                        ValueRef::Blob(blob) => write!(&mut sql, "X'{}'", blob.iter().map(|byte| format!("{:02x}", byte)).collect::<String>()).unwrap(),
+                        ValueRef::Text(text) => {
+                            write!(&mut sql, "'{}'", std::str::from_utf8(text).unwrap()).unwrap()
+                        }
+                        ValueRef::Blob(blob) => write!(
+                            &mut sql,
+                            "X'{}'",
+                            blob.iter()
+                                .map(|byte| format!("{:02x}", byte))
+                                .collect::<String>()
+                        )
+                        .unwrap(),
                     }
                 }
                 sql.push_str(");");
