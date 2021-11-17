@@ -92,6 +92,8 @@ impl App {
                     println!("tree = {}", tree.root_node().to_sexp());
                     Ok(())
                 }
+                [".dump"] => self.execute_dump(None),
+                [".dump", filter] => self.execute_dump(Some(filter)),
                 _ => anyhow::bail!("unknown dot command"),
             }
         } else {
@@ -161,6 +163,56 @@ impl App {
         let highlighted = highlighter.highlight(&formatted)?;
         println!("{}", highlighted);
 
+        Ok(())
+    }
+
+    fn execute_dump(&mut self, filter: Option<&str>) -> anyhow::Result<()> {
+        let mut tables_stmt = self.conn.prepare_cached("SELECT name, sql FROM sqlite_schema WHERE type = 'table' AND tbl_name LIKE ?")?;
+        let mut tables_query = tables_stmt.query([filter.map(|name| format!("%{}%", name)).unwrap_or_else(|| "%".to_string())])?;
+        let mut opt_row = if let Some(row) = tables_query.next()? {
+            Some(row)
+        } else {
+            anyhow::bail!("no results for {}", filter.unwrap_or(""));
+        };
+
+        let highlighter = &self.helper().highlighter;
+        println!("{}", highlighter.highlight("PRAGMA foreign_keys=OFF;")?);
+        println!("{}", highlighter.highlight("BEGIN TRANSACTION;")?);
+
+        while let Some(row) = opt_row {
+            let name: String = row.get_unwrap(0);
+            let sql: String = row.get_unwrap(1);
+
+            let mut formatted = sqlformat::format(&sql, &Default::default(), Default::default());
+            formatted.push(';');
+            println!("{}", highlighter.highlight(&formatted)?);
+
+            let mut rows_stmt = self.conn.prepare(&format!("SELECT * FROM {}", &name))?;
+            let cols = rows_stmt.column_count();
+            let mut rows_query = rows_stmt.query([])?;
+            while let Some(row) = rows_query.next()? {
+                let mut sql = format!("INSERT INTO {} VALUES(", &name);
+                for index in 0..cols {
+                    use std::fmt::Write;
+                    if index > 0 {
+                        sql.push_str(", ");
+                    }
+                    match row.get_ref(index)? {
+                        ValueRef::Null => sql.push_str("NULL"),
+                        ValueRef::Integer(n) => write!(&mut sql, "{}", n).unwrap(),
+                        ValueRef::Real(n) => write!(&mut sql, "{}", n).unwrap(),
+                        ValueRef::Text(text) => write!(&mut sql, "'{}'", std::str::from_utf8(text).unwrap()).unwrap(),
+                        ValueRef::Blob(blob) => write!(&mut sql, "X'{}'", blob.iter().map(|byte| format!("{:02x}", byte)).collect::<String>()).unwrap(),
+                    }
+                }
+                sql.push_str(");");
+                println!("{}", highlighter.highlight(&sql)?);
+            }
+
+            opt_row = tables_query.next()?;
+        }
+
+        println!("{}", highlighter.highlight("COMMIT;")?);
         Ok(())
     }
 
