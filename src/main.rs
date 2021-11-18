@@ -15,7 +15,7 @@ mod output;
 
 use completions::Completions;
 use input::EditorHelper;
-use output::{OutputRows, SQLOutput, TableOutput};
+use output::{OutputMode, OutputRows, SQLOutput};
 
 fn text_provider(input: &str) -> impl tree_sitter::TextProvider<'_> {
     |node: tree_sitter::Node<'_>| std::iter::once(input[node.byte_range()].as_bytes())
@@ -24,7 +24,7 @@ fn text_provider(input: &str) -> impl tree_sitter::TextProvider<'_> {
 struct App {
     rl: Editor<EditorHelper>,
     conn: Rc<Connection>,
-    output_rows: Box<dyn OutputRows>,
+    output_mode: OutputMode,
 }
 
 impl App {
@@ -64,6 +64,12 @@ impl App {
             let parts = request.splitn(2, ' ').collect::<Vec<_>>();
             match &parts[..] {
                 [".tables"] => self.execute_tables(),
+                [".mode", mode] => {
+                    self.output_mode = mode
+                        .parse()
+                        .map_err(|_| anyhow::Error::msg("unknown mode"))?;
+                    Ok(())
+                }
                 [".schema"] => anyhow::bail!("provide a table name"),
                 [".schema", table_name] => self.execute_schema(table_name),
                 [".parse"] => anyhow::bail!("provide a query to parse"),
@@ -173,14 +179,8 @@ impl App {
 
             let mut rows_stmt = self.conn.prepare(&format!("SELECT * FROM {}", &name))?;
 
-            let mut output_rows = SQLOutput {
-                table_name: name,
-                highlighted: true,
-                highlighter,
-                num_columns: 0,
-            };
+            let mut output_rows = SQLOutput::new(&rows_stmt, highlighter).with_table_name(name);
 
-            output_rows.begin(&rows_stmt.columns())?;
             let mut rows_query = rows_stmt.query([])?;
             while let Some(row) = rows_query.next()? {
                 output_rows.add_row(row)?;
@@ -226,14 +226,14 @@ impl App {
             anyhow::bail!("cannot run queries that require bind parameters");
         }
 
-        self.output_rows.begin(&stmt.columns())?;
+        let highlighter = &self.helper().highlighter;
+        let mut output_rows = self.output_mode.table(&stmt, highlighter);
 
         let mut query = stmt.query([])?;
         while let Some(row) = query.next()? {
-            self.output_rows.add_row(row)?;
+            output_rows.add_row(row)?;
         }
-
-        self.output_rows.finish()?;
+        output_rows.finish()?;
 
         Ok(())
     }
@@ -266,7 +266,7 @@ fn main() -> anyhow::Result<()> {
     let mut app = App {
         rl,
         conn,
-        output_rows: Box::new(TableOutput::default()),
+        output_mode: OutputMode::Table,
     };
 
     if opts.queries.is_empty() {
