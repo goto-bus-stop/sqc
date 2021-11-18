@@ -9,6 +9,7 @@ edition = "2021"
 anyhow = "1.0.45"
 clap = "3.0.0-beta.2"
 comfy-table = "5.0.0"
+csv = "1.1.6"
 itertools = "0.10.1"
 once_cell = "1.8.0"
 rusqlite = { version = "0.26.1", features = ["column_decltype"] }
@@ -20,3 +21,6 @@ tree-sitter-highlight = "0.20.0"
 tree-sitter-sqlite = { git = "https://github.com/goto-bus-stop/tree-sitter-sqlite", branch = "tree-sitter-0.20" }
 
 [features]
+
+[profile.release]
+debug = true

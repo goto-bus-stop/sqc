@@ -1,6 +1,6 @@
 use crate::highlight::SQLHighlighter;
-// use csv::{WriterBuilder, Writer, ByteRecord};
 use comfy_table::{Cell, Color, ContentArrangement, Table};
+use csv::{ByteRecord, Writer, WriterBuilder};
 use itertools::Itertools;
 use rusqlite::types::ValueRef;
 use rusqlite::{Row, Statement};
@@ -12,7 +12,7 @@ use std::str::FromStr;
 pub enum OutputMode {
     Null,
     Table,
-    // CSV,
+    CSV,
     SQL,
 }
 
@@ -26,6 +26,7 @@ impl OutputMode {
             OutputMode::Null => Box::new(NullOutput),
             OutputMode::Table => Box::new(TableOutput::new(statement)),
             OutputMode::SQL => Box::new(SQLOutput::new(statement, highlight)),
+            OutputMode::CSV => Box::new(CSVOutput::new(statement)),
         }
     }
 }
@@ -36,6 +37,7 @@ impl FromStr for OutputMode {
         match s {
             "null" => Ok(Self::Null),
             "table" => Ok(Self::Table),
+            "csv" => Ok(Self::CSV),
             "sql" => Ok(Self::SQL),
             _ => Err(()),
         }
@@ -110,6 +112,46 @@ impl OutputRows for TableOutput {
         } else {
             println!("{}", self.table);
         }
+        Ok(())
+    }
+}
+
+pub struct CSVOutput {
+    writer: Writer<Box<dyn Write>>,
+}
+
+impl CSVOutput {
+    pub fn new(statement: &Statement<'_>) -> Self {
+        let stdout = Box::new(std::io::stdout()) as Box<dyn Write>;
+        let mut writer = WriterBuilder::new().has_headers(true).from_writer(stdout);
+
+        // TODO return result
+        writer
+            .write_byte_record(&ByteRecord::from(statement.column_names()))
+            .unwrap();
+
+        Self { writer }
+    }
+}
+
+impl OutputRows for CSVOutput {
+    fn add_row(&mut self, row: &Row<'_>) -> anyhow::Result<()> {
+        for index in 0..row.as_ref().column_count() {
+            let val = row.get_ref_unwrap(index);
+            match val {
+                ValueRef::Null => self.writer.write_field([]),
+                ValueRef::Integer(n) => self.writer.write_field(format!("{}", n)),
+                ValueRef::Real(n) => self.writer.write_field(format!("{}", n)),
+                ValueRef::Text(text) => self.writer.write_field(text),
+                ValueRef::Blob(blob) => self.writer.write_field(blob),
+            }?;
+        }
+        self.writer.write_record(None::<&[u8]>)?;
+        Ok(())
+    }
+
+    fn finish(&mut self) -> anyhow::Result<()> {
+        self.writer.flush()?;
         Ok(())
     }
 }
