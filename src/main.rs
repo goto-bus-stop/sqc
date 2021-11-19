@@ -1,9 +1,9 @@
 use clap::Parser;
+use directories::ProjectDirs;
 use rusqlite::types::ValueRef;
 use rusqlite::Connection;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
-use std::borrow::Cow;
 use std::path::PathBuf;
 use std::rc::Rc;
 use termcolor::{ColorChoice, StandardStream};
@@ -32,7 +32,6 @@ struct App {
 
 impl App {
     fn run(&mut self) -> anyhow::Result<()> {
-        let _ = self.rl.load_history("history.txt");
         let prompt = format!(
             "{}> ",
             self.rl.helper().unwrap().name().unwrap_or(":memory:")
@@ -54,7 +53,6 @@ impl App {
                 }
             }
         }
-        self.rl.save_history("history.txt")?;
         Ok(())
     }
 
@@ -280,6 +278,13 @@ struct Opts {
 
 fn main() -> anyhow::Result<()> {
     let opts = Opts::parse();
+    let dirs = ProjectDirs::from("", "sqc", "sqc");
+    let history_path = dirs.as_ref().map(|dirs| dirs.data_dir().join("history.txt"));
+
+    if let Some(dirs) = &dirs {
+        let _ = std::fs::create_dir_all(dirs.data_dir());
+    }
+
     let conn = Rc::new(match &opts.filename {
         Some(filename) => Connection::open(&filename)?,
         None => Connection::open_in_memory()?,
@@ -302,7 +307,15 @@ fn main() -> anyhow::Result<()> {
     };
 
     if opts.queries.is_empty() {
+        if let Some(path) = &history_path {
+            let _ = app.rl.load_history(path);
+        } else {
+            eprintln!("Warning: could not load shell history: home directory not found");
+        }
         app.run()?;
+        if let Some(path) = &history_path {
+            let _ = app.rl.save_history(path);
+        }
     } else {
         for query in opts.queries {
             app.execute(&query)?;
