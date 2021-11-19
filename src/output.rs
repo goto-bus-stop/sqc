@@ -1,4 +1,4 @@
-use crate::highlight::SQLHighlighter;
+use crate::highlight::SqlHighlighter;
 use comfy_table::{Cell, Color, ContentArrangement, Table};
 use csv::{ByteRecord, Writer, WriterBuilder};
 use itertools::Itertools;
@@ -49,22 +49,22 @@ impl<'f> WriteColor for WriteColorFile<'f> {
 pub enum OutputMode {
     Null,
     Table,
-    CSV,
-    SQL,
+    Csv,
+    Sql,
 }
 
 impl OutputMode {
     pub fn output_rows<'h>(
         self,
         statement: &Statement<'_>,
-        highlight: &'h SQLHighlighter,
+        highlight: &'h SqlHighlighter,
         output: &'h mut dyn WriteColor,
     ) -> Box<dyn OutputRows + 'h> {
         match self {
             OutputMode::Null => Box::new(NullOutput),
             OutputMode::Table => Box::new(TableOutput::new(statement, output)),
-            OutputMode::SQL => Box::new(SQLOutput::new(statement, highlight, output)),
-            OutputMode::CSV => Box::new(CSVOutput::new(statement, output)),
+            OutputMode::Sql => Box::new(SqlOutput::new(statement, highlight, output)),
+            OutputMode::Csv => Box::new(CsvOutput::new(statement, output)),
         }
     }
 }
@@ -75,8 +75,8 @@ impl FromStr for OutputMode {
         match s {
             "null" => Ok(Self::Null),
             "table" => Ok(Self::Table),
-            "csv" => Ok(Self::CSV),
-            "sql" => Ok(Self::SQL),
+            "csv" => Ok(Self::Csv),
+            "sql" => Ok(Self::Sql),
             _ => Err(()),
         }
     }
@@ -174,11 +174,11 @@ impl<'a> OutputRows for TableOutput<'a> {
     }
 }
 
-pub struct CSVOutput<'a> {
+pub struct CsvOutput<'a> {
     writer: Writer<&'a mut dyn WriteColor>,
 }
 
-impl<'a> CSVOutput<'a> {
+impl<'a> CsvOutput<'a> {
     pub fn new(statement: &Statement<'_>, output: &'a mut dyn WriteColor) -> Self {
         let mut writer = WriterBuilder::new().has_headers(true).from_writer(output);
 
@@ -191,7 +191,7 @@ impl<'a> CSVOutput<'a> {
     }
 }
 
-impl<'a> OutputRows for CSVOutput<'a> {
+impl<'a> OutputRows for CsvOutput<'a> {
     fn add_row(&mut self, row: &Row<'_>) -> anyhow::Result<()> {
         for index in 0..row.as_ref().column_count() {
             let val = row.get_ref_unwrap(index);
@@ -213,17 +213,17 @@ impl<'a> OutputRows for CSVOutput<'a> {
     }
 }
 
-pub struct SQLOutput<'a> {
+pub struct SqlOutput<'a> {
     table_name: String,
-    highlighter: &'a SQLHighlighter,
+    highlighter: &'a SqlHighlighter,
     output: &'a mut dyn WriteColor,
     num_columns: usize,
 }
 
-impl<'a> SQLOutput<'a> {
+impl<'a> SqlOutput<'a> {
     pub fn new(
         statement: &Statement<'_>,
-        highlighter: &'a SQLHighlighter,
+        highlighter: &'a SqlHighlighter,
         output: &'a mut dyn WriteColor,
     ) -> Self {
         let num_columns = statement.column_count();
@@ -249,7 +249,7 @@ impl<'a> SQLOutput<'a> {
     }
 }
 
-impl<'a> OutputRows for SQLOutput<'a> {
+impl<'a> OutputRows for SqlOutput<'a> {
     fn add_row(&mut self, row: &Row<'_>) -> anyhow::Result<()> {
         let mut sql = format!("INSERT INTO {} VALUES(", &self.table_name);
         for index in 0..self.num_columns {

@@ -14,14 +14,11 @@ mod completions;
 mod highlight;
 mod input;
 mod output;
+mod sql;
 
 use completions::Completions;
 use input::EditorHelper;
-use output::{OutputMode, OutputRows, OutputTarget, SQLOutput};
-
-fn text_provider(input: &str) -> impl tree_sitter::TextProvider<'_> {
-    |node: tree_sitter::Node<'_>| std::iter::once(input[node.byte_range()].as_bytes())
-}
+use output::{OutputMode, OutputRows, OutputTarget, SqlOutput};
 
 struct App {
     rl: Editor<EditorHelper>,
@@ -81,8 +78,12 @@ impl App {
                 [".schema", table_name] => self.execute_schema(table_name),
                 [".parse"] => anyhow::bail!("provide a query to parse"),
                 [".parse", sql] => {
-                    let tree = crate::highlight::parse_sql(sql)?;
-                    writeln!(self.output_target.start(), "{}", tree.root_node().to_sexp())?;
+                    let tree = crate::sql::parse_sql(sql)?;
+                    writeln!(
+                        self.output_target.start(),
+                        "{}",
+                        tree.tree.root_node().to_sexp()
+                    )?;
                     Ok(())
                 }
                 [".dump"] => self.execute_dump(None),
@@ -90,11 +91,8 @@ impl App {
                 _ => anyhow::bail!("unknown dot command"),
             }
         } else {
-            let tree = crate::highlight::parse_sql(request)?;
-            let statements_query = tree_sitter_query!("(sql_stmt_list (sql_stmt) @stmt)");
-            let mut cursor = tree_sitter::QueryCursor::new();
-            for stmt in cursor.matches(statements_query, tree.root_node(), text_provider(request)) {
-                let stmt_node = stmt.captures[0].node;
+            let tree = crate::sql::parse_sql(request)?;
+            for stmt_node in tree.statements() {
                 let sql = &request[stmt_node.byte_range()];
                 let kind = stmt_node.child(0).map(|node| node.kind());
                 match kind {
@@ -205,7 +203,7 @@ impl App {
             let mut rows_stmt = self.conn.prepare(&format!("SELECT * FROM {}", &name))?;
 
             let mut output_rows =
-                SQLOutput::new(&rows_stmt, highlighter, &mut output).with_table_name(name);
+                SqlOutput::new(&rows_stmt, highlighter, &mut output).with_table_name(name);
 
             let mut rows_query = rows_stmt.query([])?;
             while let Some(row) = rows_query.next()? {
@@ -279,7 +277,9 @@ struct Opts {
 fn main() -> anyhow::Result<()> {
     let opts = Opts::parse();
     let dirs = ProjectDirs::from("", "sqc", "sqc");
-    let history_path = dirs.as_ref().map(|dirs| dirs.data_dir().join("history.txt"));
+    let history_path = dirs
+        .as_ref()
+        .map(|dirs| dirs.data_dir().join("history.txt"));
 
     if let Some(dirs) = &dirs {
         let _ = std::fs::create_dir_all(dirs.data_dir());

@@ -3,7 +3,6 @@
 use std::cell::RefCell;
 use std::io::Write;
 use termcolor::{Buffer, Color, ColorSpec, WriteColor};
-use tree_sitter::{Parser, Tree};
 use tree_sitter_highlight::{
     Error as HighlightError, Highlight, HighlightConfiguration, HighlightEvent, Highlighter,
 };
@@ -18,12 +17,12 @@ const QUERY_NAMES: [&str; 7] = [
     "punctuation",
 ];
 
-pub struct SQLHighlighter {
+pub struct SqlHighlighter {
     highlighter: RefCell<Highlighter>,
     sql_config: HighlightConfiguration,
 }
 
-impl SQLHighlighter {
+impl SqlHighlighter {
     pub fn new() -> Self {
         let highlighter = Highlighter::new();
         let mut sql_config = HighlightConfiguration::new(
@@ -48,17 +47,10 @@ impl SQLHighlighter {
     }
 }
 
-impl Default for SQLHighlighter {
+impl Default for SqlHighlighter {
     fn default() -> Self {
         Self::new()
     }
-}
-
-pub fn parse_sql(sql: &str) -> anyhow::Result<Tree> {
-    let mut parser = Parser::new();
-    parser.set_language(tree_sitter_sqlite::language())?;
-    let tree = parser.parse(sql, None).unwrap();
-    Ok(tree)
 }
 
 /// Turn highlights into ANSI sequences. Accepts highlights in any language, but the name order
