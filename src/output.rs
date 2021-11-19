@@ -4,9 +4,46 @@ use csv::{ByteRecord, Writer, WriterBuilder};
 use itertools::Itertools;
 use rusqlite::types::ValueRef;
 use rusqlite::{Row, Statement};
+use std::fs::File;
 use std::io::Write;
 use std::process::{Command, Stdio};
 use std::str::FromStr;
+use termcolor::{StandardStream, WriteColor};
+
+pub enum OutputTarget {
+    Stdout(StandardStream),
+    File(File),
+}
+
+impl OutputTarget {
+    pub fn start(&mut self) -> Box<dyn WriteColor + '_> {
+        match self {
+            OutputTarget::Stdout(stream) => Box::new(stream.lock()),
+            OutputTarget::File(file) => Box::new(WriteColorFile(file)),
+        }
+    }
+}
+
+struct WriteColorFile<'f>(&'f mut File);
+impl<'f> std::io::Write for WriteColorFile<'f> {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.0.write(bytes)
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.0.flush()
+    }
+}
+impl<'f> WriteColor for WriteColorFile<'f> {
+    fn supports_color(&self) -> bool {
+        false
+    }
+    fn set_color(&mut self, _: &termcolor::ColorSpec) -> std::io::Result<()> {
+        Ok(())
+    }
+    fn reset(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OutputMode {
@@ -17,16 +54,17 @@ pub enum OutputMode {
 }
 
 impl OutputMode {
-    pub fn table<'h>(
+    pub fn output_rows<'h>(
         self,
         statement: &Statement<'_>,
         highlight: &'h SQLHighlighter,
+        output: &'h mut dyn WriteColor,
     ) -> Box<dyn OutputRows + 'h> {
         match self {
             OutputMode::Null => Box::new(NullOutput),
-            OutputMode::Table => Box::new(TableOutput::new(statement)),
-            OutputMode::SQL => Box::new(SQLOutput::new(statement, highlight)),
-            OutputMode::CSV => Box::new(CSVOutput::new(statement)),
+            OutputMode::Table => Box::new(TableOutput::new(statement, output)),
+            OutputMode::SQL => Box::new(SQLOutput::new(statement, highlight, output)),
+            OutputMode::CSV => Box::new(CSVOutput::new(statement, output)),
         }
     }
 }
@@ -59,20 +97,24 @@ impl OutputRows for NullOutput {
     }
 }
 
-#[derive(Default)]
-pub struct TableOutput {
+pub struct TableOutput<'a> {
     table: Table,
     num_columns: usize,
+    output: &'a mut dyn WriteColor,
 }
 
-impl TableOutput {
-    pub fn new(statement: &Statement<'_>) -> Self {
+impl<'a> TableOutput<'a> {
+    pub fn new(statement: &Statement<'_>, output: &'a mut dyn WriteColor) -> Self {
         let mut table = Table::new();
         table.load_preset("││──╞══╡│    ──┌┐└┘");
         let names = statement.column_names();
         let num_columns = names.len();
         table.set_header(names);
-        Self { table, num_columns }
+        Self {
+            table,
+            num_columns,
+            output,
+        }
     }
 }
 
@@ -88,7 +130,7 @@ fn value_to_cell(value: ValueRef) -> Cell {
     }
 }
 
-impl OutputRows for TableOutput {
+impl<'a> OutputRows for TableOutput<'a> {
     fn add_row(&mut self, row: &Row<'_>) -> anyhow::Result<()> {
         let table_row = (0..self.num_columns)
             // We are iterating over column_count() so this should never fail
@@ -110,20 +152,19 @@ impl OutputRows for TableOutput {
             writeln!(command.stdin.as_mut().unwrap(), "{}", self.table)?;
             command.wait()?;
         } else {
-            println!("{}", self.table);
+            writeln!(self.output, "{}", self.table)?;
         }
         Ok(())
     }
 }
 
-pub struct CSVOutput {
-    writer: Writer<Box<dyn Write>>,
+pub struct CSVOutput<'a> {
+    writer: Writer<&'a mut dyn WriteColor>,
 }
 
-impl CSVOutput {
-    pub fn new(statement: &Statement<'_>) -> Self {
-        let stdout = Box::new(std::io::stdout()) as Box<dyn Write>;
-        let mut writer = WriterBuilder::new().has_headers(true).from_writer(stdout);
+impl<'a> CSVOutput<'a> {
+    pub fn new(statement: &Statement<'_>, output: &'a mut dyn WriteColor) -> Self {
+        let mut writer = WriterBuilder::new().has_headers(true).from_writer(output);
 
         // TODO return result
         writer
@@ -134,7 +175,7 @@ impl CSVOutput {
     }
 }
 
-impl OutputRows for CSVOutput {
+impl<'a> OutputRows for CSVOutput<'a> {
     fn add_row(&mut self, row: &Row<'_>) -> anyhow::Result<()> {
         for index in 0..row.as_ref().column_count() {
             let val = row.get_ref_unwrap(index);
@@ -157,14 +198,19 @@ impl OutputRows for CSVOutput {
 }
 
 pub struct SQLOutput<'a> {
-    pub table_name: String,
+    table_name: String,
     pub highlighted: bool,
-    pub highlighter: &'a SQLHighlighter,
-    pub num_columns: usize,
+    highlighter: &'a SQLHighlighter,
+    output: &'a mut dyn WriteColor,
+    num_columns: usize,
 }
 
 impl<'a> SQLOutput<'a> {
-    pub fn new(statement: &Statement<'_>, highlighter: &'a SQLHighlighter) -> Self {
+    pub fn new(
+        statement: &Statement<'_>,
+        highlighter: &'a SQLHighlighter,
+        output: &'a mut dyn WriteColor,
+    ) -> Self {
         let num_columns = statement.column_count();
 
         Self {
@@ -172,6 +218,7 @@ impl<'a> SQLOutput<'a> {
             // TODO make this depend on the output stream
             highlighted: true,
             highlighter,
+            output,
             num_columns,
         }
     }
@@ -180,11 +227,11 @@ impl<'a> SQLOutput<'a> {
         Self { table_name, ..self }
     }
 
-    fn println(&self, sql: &str) {
+    fn println(&mut self, sql: &str) -> std::io::Result<()> {
         if self.highlighted {
-            println!("{}", self.highlighter.highlight(sql).unwrap());
+            writeln!(self.output, "{}", self.highlighter.highlight(sql).unwrap())
         } else {
-            println!("{}", sql);
+            writeln!(self.output, "{}", sql)
         }
     }
 }
@@ -215,7 +262,7 @@ impl<'a> OutputRows for SQLOutput<'a> {
             }
         }
         sql.push_str(");");
-        self.println(&sql);
+        self.println(&sql)?;
         Ok(())
     }
     fn finish(&mut self) -> anyhow::Result<()> {

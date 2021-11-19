@@ -5,6 +5,7 @@ use rustyline::error::ReadlineError;
 use rustyline::Editor;
 use std::path::PathBuf;
 use std::rc::Rc;
+use termcolor::{ColorChoice, StandardStream};
 
 #[macro_use]
 mod macros;
@@ -15,7 +16,7 @@ mod output;
 
 use completions::Completions;
 use input::EditorHelper;
-use output::{OutputMode, OutputRows, SQLOutput};
+use output::{OutputMode, OutputRows, OutputTarget, SQLOutput};
 
 fn text_provider(input: &str) -> impl tree_sitter::TextProvider<'_> {
     |node: tree_sitter::Node<'_>| std::iter::once(input[node.byte_range()].as_bytes())
@@ -24,6 +25,7 @@ fn text_provider(input: &str) -> impl tree_sitter::TextProvider<'_> {
 struct App {
     rl: Editor<EditorHelper>,
     conn: Rc<Connection>,
+    output_target: OutputTarget,
     output_mode: OutputMode,
 }
 
@@ -55,10 +57,6 @@ impl App {
         Ok(())
     }
 
-    fn helper(&self) -> &EditorHelper {
-        self.rl.helper().unwrap()
-    }
-
     fn execute(&mut self, request: &str) -> anyhow::Result<()> {
         if request.starts_with('.') {
             let parts = request.splitn(2, ' ').collect::<Vec<_>>();
@@ -68,6 +66,10 @@ impl App {
                     self.output_mode = mode
                         .parse()
                         .map_err(|_| anyhow::Error::msg("unknown mode"))?;
+                    Ok(())
+                }
+                [".output", filename] => {
+                    self.output_target = OutputTarget::File(std::fs::File::create(filename)?);
                     Ok(())
                 }
                 [".schema"] => anyhow::bail!("provide a table name"),
@@ -114,12 +116,14 @@ impl App {
 
     /// Execute a .tables command.
     fn execute_tables(&mut self) -> anyhow::Result<()> {
+        let mut output = self.output_target.start();
+
         let mut stmt = self
             .conn
             .prepare("SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name ASC")?;
         let tables = stmt.query_map([], |row| row.get::<_, String>(0))?;
         for table in tables {
-            println!("{}", table?);
+            writeln!(&mut output, "{}", table?)?;
         }
 
         Ok(())
@@ -144,15 +148,19 @@ impl App {
             anyhow::bail!("sqlite_schema table does not contain `text` for some reason?");
         };
 
-        let highlighter = &self.helper().highlighter;
+        let highlighter = &self.rl.helper().unwrap().highlighter;
         let formatted = sqlformat::format(sql, &Default::default(), Default::default());
         let highlighted = highlighter.highlight(&formatted)?;
-        println!("{}", highlighted);
+
+        let mut output = self.output_target.start();
+        writeln!(&mut output, "{}", highlighted)?;
 
         Ok(())
     }
 
     fn execute_dump(&mut self, filter: Option<&str>) -> anyhow::Result<()> {
+        let mut output = self.output_target.start();
+
         let mut tables_stmt = self.conn.prepare_cached(
             "SELECT name, sql FROM sqlite_schema WHERE type = 'table' AND tbl_name LIKE ?",
         )?;
@@ -165,9 +173,17 @@ impl App {
             anyhow::bail!("no results for {}", filter.unwrap_or(""));
         };
 
-        let highlighter = &self.helper().highlighter;
-        println!("{}", highlighter.highlight("PRAGMA foreign_keys=OFF;")?);
-        println!("{}", highlighter.highlight("BEGIN TRANSACTION;")?);
+        let highlighter = &self.rl.helper().unwrap().highlighter;
+        writeln!(
+            &mut output,
+            "{}",
+            highlighter.highlight("PRAGMA foreign_keys=OFF;")?
+        )?;
+        writeln!(
+            &mut output,
+            "{}",
+            highlighter.highlight("BEGIN TRANSACTION;")?
+        )?;
 
         while let Some(row) = opt_row {
             let name: String = row.get_unwrap(0);
@@ -175,11 +191,12 @@ impl App {
 
             let mut formatted = sqlformat::format(&sql, &Default::default(), Default::default());
             formatted.push(';');
-            println!("{}", highlighter.highlight(&formatted)?);
+            writeln!(&mut output, "{}", highlighter.highlight(&formatted)?)?;
 
             let mut rows_stmt = self.conn.prepare(&format!("SELECT * FROM {}", &name))?;
 
-            let mut output_rows = SQLOutput::new(&rows_stmt, highlighter).with_table_name(name);
+            let mut output_rows =
+                SQLOutput::new(&rows_stmt, highlighter, &mut output).with_table_name(name);
 
             let mut rows_query = rows_stmt.query([])?;
             while let Some(row) = rows_query.next()? {
@@ -190,7 +207,7 @@ impl App {
             opt_row = tables_query.next()?;
         }
 
-        println!("{}", highlighter.highlight("COMMIT;")?);
+        writeln!(&mut output, "{}", highlighter.highlight("COMMIT;")?)?;
         Ok(())
     }
 
@@ -226,8 +243,11 @@ impl App {
             anyhow::bail!("cannot run queries that require bind parameters");
         }
 
-        let highlighter = &self.helper().highlighter;
-        let mut output_rows = self.output_mode.table(&stmt, highlighter);
+        let highlighter = &self.rl.helper().unwrap().highlighter;
+        let mut output = self.output_target.start();
+        let mut output_rows = self
+            .output_mode
+            .output_rows(&stmt, highlighter, &mut output);
 
         let mut query = stmt.query([])?;
         while let Some(row) = query.next()? {
@@ -266,6 +286,7 @@ fn main() -> anyhow::Result<()> {
     let mut app = App {
         rl,
         conn,
+        output_target: OutputTarget::Stdout(StandardStream::stdout(ColorChoice::Auto)),
         output_mode: OutputMode::Table,
     };
 
