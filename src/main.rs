@@ -77,7 +77,7 @@ impl App {
                 [".parse"] => anyhow::bail!("provide a query to parse"),
                 [".parse", sql] => {
                     let tree = crate::highlight::parse_sql(sql)?;
-                    println!("tree = {}", tree.root_node().to_sexp());
+                    writeln!(self.output_target.start(), "{}", tree.root_node().to_sexp())?;
                     Ok(())
                 }
                 [".dump"] => self.execute_dump(None),
