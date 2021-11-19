@@ -130,12 +130,28 @@ fn value_to_cell(value: ValueRef) -> Cell {
     }
 }
 
+fn value_to_cell_nocolor(value: ValueRef) -> Cell {
+    match value {
+        ValueRef::Null => Cell::new("NULL"),
+        ValueRef::Integer(n) => Cell::new(n),
+        ValueRef::Real(n) => Cell::new(n),
+        ValueRef::Text(text) => Cell::new(String::from_utf8_lossy(text)),
+        ValueRef::Blob(blob) => {
+            Cell::new(blob.iter().map(|byte| format!("{:02x}", byte)).join(" "))
+        }
+    }
+}
+
 impl<'a> OutputRows for TableOutput<'a> {
     fn add_row(&mut self, row: &Row<'_>) -> anyhow::Result<()> {
         let table_row = (0..self.num_columns)
             // We are iterating over column_count() so this should never fail
             .map(|index| row.get_ref_unwrap(index))
-            .map(value_to_cell);
+            .map(if self.output.supports_color() {
+                value_to_cell
+            } else {
+                value_to_cell_nocolor
+            });
         self.table.add_row(table_row);
         Ok(())
     }
@@ -199,7 +215,6 @@ impl<'a> OutputRows for CSVOutput<'a> {
 
 pub struct SQLOutput<'a> {
     table_name: String,
-    pub highlighted: bool,
     highlighter: &'a SQLHighlighter,
     output: &'a mut dyn WriteColor,
     num_columns: usize,
@@ -215,8 +230,6 @@ impl<'a> SQLOutput<'a> {
 
         Self {
             table_name: "tbl".to_string(),
-            // TODO make this depend on the output stream
-            highlighted: true,
             highlighter,
             output,
             num_columns,
@@ -228,7 +241,7 @@ impl<'a> SQLOutput<'a> {
     }
 
     fn println(&mut self, sql: &str) -> std::io::Result<()> {
-        if self.highlighted {
+        if self.output.supports_color() {
             writeln!(self.output, "{}", self.highlighter.highlight(sql).unwrap())
         } else {
             writeln!(self.output, "{}", sql)

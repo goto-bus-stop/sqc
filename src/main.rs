@@ -3,6 +3,7 @@ use rusqlite::types::ValueRef;
 use rusqlite::Connection;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
+use std::borrow::Cow;
 use std::path::PathBuf;
 use std::rc::Rc;
 use termcolor::{ColorChoice, StandardStream};
@@ -70,7 +71,8 @@ impl App {
                     Ok(())
                 }
                 [".output"] => {
-                    self.output_target = OutputTarget::Stdout(StandardStream::stdout(ColorChoice::Auto));
+                    self.output_target =
+                        OutputTarget::Stdout(StandardStream::stdout(ColorChoice::Auto));
                     Ok(())
                 }
                 [".output", filename] => {
@@ -155,9 +157,13 @@ impl App {
 
         let highlighter = &self.rl.helper().unwrap().highlighter;
         let formatted = sqlformat::format(sql, &Default::default(), Default::default());
-        let highlighted = highlighter.highlight(&formatted)?;
 
         let mut output = self.output_target.start();
+        let highlighted = if output.supports_color() {
+            highlighter.highlight(&formatted)?
+        } else {
+            formatted
+        };
         writeln!(&mut output, "{}", highlighted)?;
 
         Ok(())
