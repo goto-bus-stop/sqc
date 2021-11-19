@@ -62,10 +62,15 @@ impl App {
             let parts = request.splitn(2, ' ').collect::<Vec<_>>();
             match &parts[..] {
                 [".tables"] => self.execute_tables(),
+                [".mode"] => anyhow::bail!("provide an output mode"),
                 [".mode", mode] => {
                     self.output_mode = mode
                         .parse()
                         .map_err(|_| anyhow::Error::msg("unknown mode"))?;
+                    Ok(())
+                }
+                [".output"] => {
+                    self.output_target = OutputTarget::Stdout(StandardStream::stdout(ColorChoice::Auto));
                     Ok(())
                 }
                 [".output", filename] => {
