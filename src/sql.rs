@@ -39,3 +39,27 @@ pub fn parse_sql(sql: &str) -> anyhow::Result<ParsedSql<'_>> {
     let tree = parser.parse(sql, None).unwrap();
     Ok(ParsedSql { tree, source: sql })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn get_statements() {
+        let tree = parse_sql("
+            CREATE INDEX guess_user_id ON guesses(user_id);
+            CREATE INDEX guess_round_id ON guesses(round_id);
+            CREATE INDEX round_game_id ON rounds(game_id);
+        ").unwrap();
+        let statements = tree.statements();
+
+        assert_eq!(
+            statements.into_iter().map(|node| &tree.source[node.byte_range()]).collect::<Vec<_>>(),
+            vec![
+                "CREATE INDEX guess_user_id ON guesses(user_id)",
+                "CREATE INDEX guess_round_id ON guesses(round_id)",
+                "CREATE INDEX round_game_id ON rounds(game_id)",
+            ],
+        );
+    }
+}
