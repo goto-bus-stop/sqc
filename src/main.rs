@@ -290,6 +290,8 @@ fn main() -> anyhow::Result<()> {
         None => Connection::open_in_memory()?,
     });
 
+    rusqlite::vtab::csvtab::load_module(&conn)?;
+
     let completions = Completions::new(Rc::clone(&conn));
 
     let mut rl = Editor::new();
