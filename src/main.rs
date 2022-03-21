@@ -14,11 +14,13 @@ mod completions;
 mod highlight;
 mod input;
 mod output;
+mod settings;
 mod sql;
 
 use completions::Completions;
 use input::EditorHelper;
 use output::{OutputMode, OutputRows, OutputTarget, SqlOutput};
+use settings::Settings;
 
 /// Helper enum to take in "on"/"off" strings and turn them into bool true/false.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
@@ -73,6 +75,7 @@ enum DotCommand {
 
 struct App {
     rl: Editor<EditorHelper>,
+    settings: Settings,
     conn: Rc<Connection>,
     output_target: OutputTarget,
     output_mode: OutputMode,
@@ -422,6 +425,11 @@ fn main() -> anyhow::Result<()> {
         let _ = std::fs::create_dir_all(dirs.data_dir());
     }
 
+    let settings_path = dirs
+        .as_ref()
+        .map(|dirs| dirs.data_dir().join("settings.sqlite"))
+        .unwrap();
+    let settings = Settings::open(&settings_path)?;
     let conn = Rc::new(match &opts.filename {
         Some(filename) => Connection::open(&filename)?,
         None => Connection::open_in_memory()?,
@@ -439,6 +447,7 @@ fn main() -> anyhow::Result<()> {
     )));
 
     let mut app = App {
+        settings,
         rl,
         conn,
         output_target: OutputTarget::Stdout(StandardStream::stdout(ColorChoice::Auto)),
