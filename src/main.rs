@@ -25,6 +25,7 @@ struct App {
     conn: Rc<Connection>,
     output_target: OutputTarget,
     output_mode: OutputMode,
+    echo: bool,
 }
 
 impl App {
@@ -58,6 +59,15 @@ impl App {
             let parts = request.splitn(2, ' ').collect::<Vec<_>>();
             match &parts[..] {
                 [".tables"] => self.execute_tables(),
+                [".echo", "on"] => {
+                    self.echo = true;
+                    Ok(())
+                }
+                [".echo", "off"] => {
+                    self.echo = false;
+                    Ok(())
+                }
+                [".echo", ..] => anyhow::bail!("provide on or off"),
                 [".mode"] => anyhow::bail!("provide an output mode"),
                 [".mode", mode] => {
                     self.output_mode = mode
@@ -91,6 +101,18 @@ impl App {
                 _ => anyhow::bail!("unknown dot command"),
             }
         } else {
+            if self.echo {
+                let formatted = sqlformat::format(request, &Default::default(), Default::default());
+                let mut output = self.output_target.start();
+                let highlighter = &self.rl.helper().unwrap().highlighter;
+                let highlighted = if output.supports_color() {
+                    highlighter.highlight(&formatted)?
+                } else {
+                    formatted
+                };
+                writeln!(&mut output, "{}", highlighted)?;
+            }
+
             let tree = crate::sql::parse_sql(request)?;
             for stmt_node in tree.statements() {
                 let sql = &request[stmt_node.byte_range()];
@@ -306,6 +328,7 @@ fn main() -> anyhow::Result<()> {
         conn,
         output_target: OutputTarget::Stdout(StandardStream::stdout(ColorChoice::Auto)),
         output_mode: OutputMode::Table,
+        echo: false,
     };
 
     if opts.queries.is_empty() {
