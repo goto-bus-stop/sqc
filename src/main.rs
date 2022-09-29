@@ -6,6 +6,7 @@ use rustyline::error::ReadlineError;
 use rustyline::Editor;
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::time::Duration;
 use termcolor::{ColorChoice, StandardStream};
 
 #[macro_use]
@@ -98,6 +99,8 @@ impl App {
                 }
                 [".dump"] => self.execute_dump(None),
                 [".dump", filter] => self.execute_dump(Some(filter)),
+                [".backup"] => anyhow::bail!("provide an output file name"),
+                [".backup", filename] => self.execute_backup(filename),
                 _ => anyhow::bail!("unknown dot command"),
             }
         } else {
@@ -237,6 +240,25 @@ impl App {
         }
 
         writeln!(&mut output, "{}", highlighter.highlight("COMMIT;")?)?;
+        Ok(())
+    }
+
+    fn execute_backup(&mut self, filename: &str) -> anyhow::Result<()> {
+        use indicatif::ProgressBar;
+        use rusqlite::backup::{Backup, StepResult};
+
+        let mut destination = Connection::open(filename)?;
+        let backup = Backup::new(&self.conn, &mut destination)?;
+
+        let bar = ProgressBar::new(0);
+        while backup.step(100)? != StepResult::Done {
+            let progress = backup.progress();
+            bar.set_length(progress.pagecount.try_into().unwrap());
+            bar.set_position((progress.pagecount - progress.remaining).try_into().unwrap());
+
+            std::thread::sleep(Duration::from_millis(100));
+        }
+
         Ok(())
     }
 
