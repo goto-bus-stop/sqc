@@ -1,4 +1,4 @@
-use clap::Parser;
+use clap::{CommandFactory as _, Parser};
 use directories::ProjectDirs;
 use rusqlite::types::ValueRef;
 use rusqlite::Connection;
@@ -33,24 +33,34 @@ impl From<OnOff> for bool {
 }
 
 #[derive(Debug, Clone, Parser)]
-#[command(multicall = true)]
-enum Commands {
+#[command(multicall = true, disable_help_subcommand = true)]
+enum DotCommand {
+    /// Print this message or the help of the given subcommand(s).
+    #[command(name = ".help")]
+    Help { subcommand: Option<String> },
     /// Print names of all tables in the database.
+    #[command(name = ".tables")]
     Tables,
     /// Turn command echo on or off.
+    #[command(name = ".echo")]
     Echo { enabled: OnOff },
     /// Set the output format/mode.
+    #[command(name = ".mode")]
     Mode {
         #[arg(value_enum)]
         output_mode: OutputMode,
     },
     /// Send output to a file, or stdout.
+    #[command(name = ".output")]
     Output { filename: Option<PathBuf> },
     /// Print the schema for a table.
+    #[command(name = ".schema")]
     Schema { table_name: String },
     /// Print the parse tree for an SQL statement.
+    #[command(name = ".parse")]
     Parse { sql: String },
     /// Print database content as SQL statements.
+    #[command(name = ".dump")]
     Dump { filter: Option<String> },
 }
 
@@ -89,47 +99,8 @@ impl App {
     }
 
     fn execute(&mut self, request: &str) -> anyhow::Result<()> {
-        if let Some(command) = request.strip_prefix('.') {
-            let clap_args = command.splitn(2, ' ');
-            let clap_command = Commands::try_parse_from(clap_args);
-
-            match clap_command {
-                Ok(Commands::Tables) => self.execute_tables(),
-                Ok(Commands::Echo { enabled }) => {
-                    self.echo = enabled.into();
-                    Ok(())
-                }
-                Ok(Commands::Mode { output_mode }) => {
-                    self.output_mode = output_mode;
-                    Ok(())
-                }
-                Ok(Commands::Output { filename: None }) => {
-                    self.output_target =
-                        OutputTarget::Stdout(StandardStream::stdout(ColorChoice::Auto));
-                    Ok(())
-                }
-                Ok(Commands::Output {
-                    filename: Some(filename),
-                }) => {
-                    self.output_target = OutputTarget::File(std::fs::File::create(filename)?);
-                    Ok(())
-                }
-                Ok(Commands::Schema { table_name }) => self.execute_schema(&table_name),
-                Ok(Commands::Parse { sql }) => {
-                    let tree = crate::sql::parse_sql(&sql)?;
-                    writeln!(
-                        self.output_target.start(),
-                        "{}",
-                        tree.tree.root_node().to_sexp()
-                    )?;
-                    Ok(())
-                }
-                Ok(Commands::Dump { filter }) => self.execute_dump(filter.as_deref()),
-                Err(err) => {
-                    err.print()?;
-                    Ok(())
-                }
-            }
+        if request.starts_with('.') {
+            self.execute_dot_command(request)
         } else {
             if self.echo {
                 let formatted = sqlformat::format(request, &Default::default(), Default::default());
@@ -143,6 +114,8 @@ impl App {
                 writeln!(&mut output, "{}", highlighted)?;
             }
 
+            // A single input may contain multiple SQL statements. Parse them
+            // out and execute individually.
             let tree = crate::sql::parse_sql(request)?;
             for stmt_node in tree.statements() {
                 let sql = &request[stmt_node.byte_range()];
@@ -166,6 +139,65 @@ impl App {
                 }
             }
             Ok(())
+        }
+    }
+
+    fn execute_dot_command(&mut self, request: &str) -> anyhow::Result<()> {
+        let clap_args = request.splitn(2, ' ');
+
+        match DotCommand::try_parse_from(clap_args) {
+            Ok(DotCommand::Help { subcommand: None }) => {
+                DotCommand::command().print_help()?;
+                Ok(())
+            }
+            Ok(DotCommand::Help {
+                subcommand: Some(name),
+            }) => {
+                // make sure it has a . in front
+                let name = format!(".{}", name.strip_prefix('.').unwrap_or(&name));
+
+                if let Some(subcommand) = DotCommand::command().find_subcommand_mut(name) {
+                    subcommand.print_help()?;
+                } else {
+                    DotCommand::command().print_help()?;
+                }
+                Ok(())
+            }
+            Ok(DotCommand::Tables) => self.execute_tables(),
+            Ok(DotCommand::Echo { enabled }) => {
+                self.echo = enabled.into();
+                Ok(())
+            }
+            Ok(DotCommand::Mode { output_mode }) => {
+                self.output_mode = output_mode;
+                Ok(())
+            }
+            Ok(DotCommand::Output { filename: None }) => {
+                self.output_target =
+                    OutputTarget::Stdout(StandardStream::stdout(ColorChoice::Auto));
+                Ok(())
+            }
+            Ok(DotCommand::Output {
+                filename: Some(filename),
+            }) => {
+                self.output_target = OutputTarget::File(std::fs::File::create(filename)?);
+                Ok(())
+            }
+            Ok(DotCommand::Schema { table_name }) => self.execute_schema(&table_name),
+            Ok(DotCommand::Parse { sql }) => {
+                let tree = crate::sql::parse_sql(&sql)?;
+                writeln!(
+                    self.output_target.start(),
+                    "{}",
+                    tree.tree.root_node().to_sexp()
+                )?;
+                Ok(())
+            }
+            Ok(DotCommand::Dump { filter }) => self.execute_dump(filter.as_deref()),
+            Err(err) => {
+                err.print()?;
+                Ok(())
+            }
         }
     }
 
