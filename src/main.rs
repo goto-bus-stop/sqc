@@ -1,10 +1,10 @@
-use clap::Parser;
+use clap::{CommandFactory as _, Parser};
 use directories::ProjectDirs;
 use rusqlite::types::ValueRef;
 use rusqlite::Connection;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::Duration;
 use termcolor::{ColorChoice, StandardStream};
@@ -20,6 +20,57 @@ mod sql;
 use completions::Completions;
 use input::EditorHelper;
 use output::{OutputMode, OutputRows, OutputTarget, SqlOutput};
+
+/// Helper enum to take in "on"/"off" strings and turn them into bool true/false.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+enum OnOff {
+    On,
+    Off,
+}
+impl From<OnOff> for bool {
+    fn from(v: OnOff) -> bool {
+        v == OnOff::On
+    }
+}
+
+#[derive(Debug, Clone, Parser)]
+#[command(
+    no_binary_name = true,
+    disable_help_subcommand = true,
+    help_template = "{all-args}"
+)]
+enum DotCommand {
+    /// Print this message or the help of the given subcommand(s).
+    #[command(name = ".help")]
+    Help { subcommand: Option<String> },
+    /// Print names of all tables in the database.
+    #[command(name = ".tables")]
+    Tables,
+    /// Turn command echo on or off.
+    #[command(name = ".echo")]
+    Echo { enabled: OnOff },
+    /// Set the output format/mode.
+    #[command(name = ".mode")]
+    Mode {
+        #[arg(value_enum)]
+        output_mode: OutputMode,
+    },
+    /// Send output to a file, or stdout.
+    #[command(name = ".output")]
+    Output { filename: Option<PathBuf> },
+    /// Print the schema for a table.
+    #[command(name = ".schema")]
+    Schema { table_name: String },
+    /// Print the parse tree for an SQL statement.
+    #[command(name = ".parse")]
+    Parse { sql: String },
+    /// Print database content as SQL statements.
+    #[command(name = ".dump")]
+    Dump { filter: Option<String> },
+    /// Create a full backup of a running database.
+    #[command(name = ".backup")]
+    Backup { filename: PathBuf },
+}
 
 struct App {
     rl: Editor<EditorHelper>,
@@ -57,52 +108,7 @@ impl App {
 
     fn execute(&mut self, request: &str) -> anyhow::Result<()> {
         if request.starts_with('.') {
-            let parts = request.splitn(2, ' ').collect::<Vec<_>>();
-            match &parts[..] {
-                [".tables"] => self.execute_tables(),
-                [".echo", "on"] => {
-                    self.echo = true;
-                    Ok(())
-                }
-                [".echo", "off"] => {
-                    self.echo = false;
-                    Ok(())
-                }
-                [".echo", ..] => anyhow::bail!("provide on or off"),
-                [".mode"] => anyhow::bail!("provide an output mode"),
-                [".mode", mode] => {
-                    self.output_mode = mode
-                        .parse()
-                        .map_err(|_| anyhow::Error::msg("unknown mode"))?;
-                    Ok(())
-                }
-                [".output"] => {
-                    self.output_target =
-                        OutputTarget::Stdout(StandardStream::stdout(ColorChoice::Auto));
-                    Ok(())
-                }
-                [".output", filename] => {
-                    self.output_target = OutputTarget::File(std::fs::File::create(filename)?);
-                    Ok(())
-                }
-                [".schema"] => anyhow::bail!("provide a table name"),
-                [".schema", table_name] => self.execute_schema(table_name),
-                [".parse"] => anyhow::bail!("provide a query to parse"),
-                [".parse", sql] => {
-                    let tree = crate::sql::parse_sql(sql)?;
-                    writeln!(
-                        self.output_target.start(),
-                        "{}",
-                        tree.tree.root_node().to_sexp()
-                    )?;
-                    Ok(())
-                }
-                [".dump"] => self.execute_dump(None),
-                [".dump", filter] => self.execute_dump(Some(filter)),
-                [".backup"] => anyhow::bail!("provide an output file name"),
-                [".backup", filename] => self.execute_backup(filename),
-                _ => anyhow::bail!("unknown dot command"),
-            }
+            self.execute_dot_command(request)
         } else {
             if self.echo {
                 let formatted = sqlformat::format(request, &Default::default(), Default::default());
@@ -116,6 +122,8 @@ impl App {
                 writeln!(&mut output, "{}", highlighted)?;
             }
 
+            // A single input may contain multiple SQL statements. Parse them
+            // out and execute individually.
             let tree = crate::sql::parse_sql(request)?;
             for stmt_node in tree.statements() {
                 let sql = &request[stmt_node.byte_range()];
@@ -139,6 +147,68 @@ impl App {
                 }
             }
             Ok(())
+        }
+    }
+
+    fn execute_dot_command(&mut self, request: &str) -> anyhow::Result<()> {
+        let clap_args = request.splitn(2, ' ');
+
+        match DotCommand::try_parse_from(clap_args) {
+            Ok(DotCommand::Help { subcommand: None }) => {
+                DotCommand::command().disable_help_flag(true).print_help()?;
+                Ok(())
+            }
+            Ok(DotCommand::Help {
+                subcommand: Some(name),
+            }) => {
+                // make sure it has a . in front
+                let name = format!(".{}", name.strip_prefix('.').unwrap_or(&name));
+
+                if let Some(subcommand) = DotCommand::command().find_subcommand_mut(name) {
+                    subcommand.print_help()?;
+                } else {
+                    DotCommand::command()
+                        .disable_help_subcommand(true)
+                        .print_help()?;
+                }
+                Ok(())
+            }
+            Ok(DotCommand::Tables) => self.execute_tables(),
+            Ok(DotCommand::Echo { enabled }) => {
+                self.echo = enabled.into();
+                Ok(())
+            }
+            Ok(DotCommand::Mode { output_mode }) => {
+                self.output_mode = output_mode;
+                Ok(())
+            }
+            Ok(DotCommand::Output { filename: None }) => {
+                self.output_target =
+                    OutputTarget::Stdout(StandardStream::stdout(ColorChoice::Auto));
+                Ok(())
+            }
+            Ok(DotCommand::Output {
+                filename: Some(filename),
+            }) => {
+                self.output_target = OutputTarget::File(std::fs::File::create(filename)?);
+                Ok(())
+            }
+            Ok(DotCommand::Schema { table_name }) => self.execute_schema(&table_name),
+            Ok(DotCommand::Parse { sql }) => {
+                let tree = crate::sql::parse_sql(&sql)?;
+                writeln!(
+                    self.output_target.start(),
+                    "{}",
+                    tree.tree.root_node().to_sexp()
+                )?;
+                Ok(())
+            }
+            Ok(DotCommand::Dump { filter }) => self.execute_dump(filter.as_deref()),
+            Ok(DotCommand::Backup { filename }) => self.execute_backup(&filename),
+            Err(err) => {
+                err.print()?;
+                Ok(())
+            }
         }
     }
 
@@ -243,7 +313,7 @@ impl App {
         Ok(())
     }
 
-    fn execute_backup(&mut self, filename: &str) -> anyhow::Result<()> {
+    fn execute_backup(&mut self, filename: &Path) -> anyhow::Result<()> {
         use indicatif::ProgressBar;
         use rusqlite::backup::{Backup, StepResult};
 
