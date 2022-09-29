@@ -160,7 +160,7 @@ impl<'a> OutputRows for TableOutput<'a> {
         self.table
             .set_content_arrangement(ContentArrangement::Dynamic);
         // TODO do this in a generic way for all output types
-        if self.table.get_row(100).is_some() {
+        if self.table.row(100).is_some() {
             let mut command = Command::new("less")
                 .stdin(Stdio::piped())
                 .env("LESSCHARSET", "UTF-8")

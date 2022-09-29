@@ -316,7 +316,7 @@ fn main() -> anyhow::Result<()> {
 
     let completions = Completions::new(Rc::clone(&conn));
 
-    let mut rl = Editor::new();
+    let mut rl = Editor::new()?;
     rl.set_helper(Some(EditorHelper::new(
         opts.filename
             .and_then(|f| f.file_name().map(|os| os.to_string_lossy().to_string())),
