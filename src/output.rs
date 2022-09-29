@@ -8,6 +8,8 @@ use std::fs::File;
 use std::io::Write;
 use std::process::{Command, Stdio};
 use std::str::FromStr;
+use std::cell::RefCell;
+use tree_sitter_highlight::{Highlighter, HighlightConfiguration};
 use termcolor::{StandardStream, WriteColor};
 
 pub enum OutputTarget {
@@ -47,9 +49,13 @@ impl<'f> WriteColor for WriteColorFile<'f> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub enum OutputMode {
+    /// Discard output.
     Null,
+    /// Output rows in an aligned, formatted table with column headers.
     Table,
+    /// Output rows as comma-separated values.
     Csv,
+    /// Output rows as SQL INSERT statements.
     Sql,
 }
 
@@ -104,6 +110,8 @@ struct Column {
 pub struct TableOutput<'o> {
     table: Table,
     columns: Vec<Column>,
+    highlighter: RefCell<Highlighter>,
+    json_config: HighlightConfiguration,
     output: &'o mut dyn WriteColor,
 }
 
@@ -113,28 +121,42 @@ impl<'o> TableOutput<'o> {
         table.load_preset("││──╞══╡│    ──┌┐└┘");
         let columns = statement.columns();
         table.set_header(columns.iter().map(|column| column.name()));
+
+        let highlighter = Highlighter::new();
+        let mut json_config = HighlightConfiguration::new(
+            tree_sitter_json::language(),
+            tree_sitter_json::HIGHLIGHT_QUERY,
+            "",
+            "",
+        ).unwrap();
+        json_config.configure(&["string", "number", "constant"]);
+
         Self {
             table,
             columns: columns.into_iter().map(|column| Column {
                 name: column.name().to_string(),
                 decl_type: column.decl_type().map(|ty| ty.to_string()),
             }).collect(),
+            highlighter: RefCell::new(highlighter),
+            json_config,
             output,
         }
     }
-}
 
-fn value_to_cell(value: ValueRef, decl_type: Option<&'_ str>) -> Cell {
-    match value {
-        ValueRef::Null => Cell::new("NULL").fg(Color::DarkGrey),
-        ValueRef::Integer(n) => Cell::new(n).fg(Color::Yellow),
-        ValueRef::Real(n) => Cell::new(n).fg(Color::Yellow),
-        ValueRef::Text(json) if decl_type.map(|text| text.to_lowercase()).as_deref() == Some("json") => {
-            Cell::new(String::from_utf8_lossy(json))
-        },
-        ValueRef::Text(text) => Cell::new(String::from_utf8_lossy(text)),
-        ValueRef::Blob(blob) => {
-            Cell::new(blob.iter().map(|byte| format!("{:02x}", byte)).join(" "))
+    fn value_to_cell(&self, value: ValueRef, decl_type: Option<&'_ str>) -> Cell {
+        match value {
+            ValueRef::Null => Cell::new("NULL").fg(Color::DarkGrey),
+            ValueRef::Integer(n) => Cell::new(n).fg(Color::Yellow),
+            ValueRef::Real(n) => Cell::new(n).fg(Color::Yellow),
+            ValueRef::Text(json) | ValueRef::Blob(json) if decl_type.map(|text| text.to_lowercase()).as_deref() == Some("json") => {
+                let mut highlighter = self.highlighter.borrow_mut();
+                let highlights = highlighter.highlight(&self.json_config, json, None, |_| None).unwrap();
+                Cell::new(crate::highlight::to_ansi(json, highlights).unwrap().to_string())
+            },
+            ValueRef::Text(text) => Cell::new(String::from_utf8_lossy(text)),
+            ValueRef::Blob(blob) => {
+                Cell::new(blob.iter().map(|byte| format!("{:02x}", byte)).join(" "))
+            }
         }
     }
 }
@@ -153,19 +175,20 @@ fn value_to_cell_nocolor(value: ValueRef, _decl_type: Option<&'_ str>) -> Cell {
 
 impl<'o> OutputRows for TableOutput<'o> {
     fn add_row(&mut self, row: &Row<'_>) -> anyhow::Result<()> {
-        let table_row = self.columns
-            .iter()
-            .enumerate()
+        let supports_color = self.output.supports_color();
+        let mut table_row = Vec::with_capacity(self.columns.len());
+        for (index, column) in self.columns.iter().enumerate() {
             // We are iterating over column_count() so this should never fail
-            .map(|(index, column)| {
-                let value = row.get_ref_unwrap(index);
-                if self.output.supports_color() {
-                    value_to_cell(value, column.decl_type.as_deref())
-                } else {
-                    value_to_cell_nocolor(value, column.decl_type.as_deref())
-                }
-            });
+            let value = row.get_ref_unwrap(index);
+            let decl_type = column.decl_type.as_deref();
+            if supports_color {
+                table_row.push(self.value_to_cell(value, decl_type));
+            } else {
+                table_row.push(value_to_cell_nocolor(value, decl_type));
+            }
+        }
         self.table.add_row(table_row);
+
         Ok(())
     }
 

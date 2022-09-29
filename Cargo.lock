@@ -771,6 +771,7 @@ dependencies = [
  "termcolor",
  "tree-sitter",
  "tree-sitter-highlight",
+ "tree-sitter-json",
  "tree-sitter-sqlite",
 ]
 
@@ -874,6 +875,15 @@ checksum = "042342584c5a7a0b833d9fc4e2bdab3f9868ddc6c4b339a1e01451c6720868bc"
 dependencies = [
  "regex",
  "thiserror",
+ "tree-sitter",
+]
+
+[[package]]
+name = "tree-sitter-json"
+version = "0.20.0"
+source = "git+https://github.com/tree-sitter/tree-sitter-json?rev=7307675#73076754005a460947cafe8e03a8cf5fa4fa2938"
+dependencies = [
+ "cc",
  "tree-sitter",
 ]
 
