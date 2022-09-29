@@ -70,17 +70,12 @@ impl Completions {
                     let mut column_names = vec![];
                     let whole = &tree.source[m.captures[0].node.byte_range()];
                     let expr = &tree.source[m.captures[2].node.byte_range()];
-                    match self.connection.prepare(&format!("{} {}", cte_prefix, expr)) {
-                        Ok(stmt) => {
-                            column_names = stmt
-                                .column_names()
-                                .into_iter()
-                                .map(ToOwned::to_owned)
-                                .collect::<Vec<_>>();
-                        }
-                        Err(_) => {
-                            // Ignore
-                        }
+                    if let Ok(stmt) = self.connection.prepare(&format!("{} {}", cte_prefix, expr)) {
+                        column_names = stmt
+                            .column_names()
+                            .into_iter()
+                            .map(ToOwned::to_owned)
+                            .collect::<Vec<_>>();
                     }
                     ctes.insert(&tree.source[m.captures[1].node.byte_range()], column_names);
                     if !cte_prefix.is_empty() {
