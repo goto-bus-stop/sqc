@@ -45,7 +45,7 @@ impl<'f> WriteColor for WriteColorFile<'f> {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub enum OutputMode {
     Null,
     Table,

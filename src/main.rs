@@ -20,6 +20,40 @@ use completions::Completions;
 use input::EditorHelper;
 use output::{OutputMode, OutputRows, OutputTarget, SqlOutput};
 
+/// Helper enum to take in "on"/"off" strings and turn them into bool true/false.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+enum OnOff {
+    On,
+    Off,
+}
+impl From<OnOff> for bool {
+    fn from(v: OnOff) -> bool {
+        v == OnOff::On
+    }
+}
+
+#[derive(Debug, Clone, Parser)]
+#[command(multicall = true)]
+enum Commands {
+    /// Print names of all tables in the database.
+    Tables,
+    /// Turn command echo on or off.
+    Echo { enabled: OnOff },
+    /// Set the output format/mode.
+    Mode {
+        #[arg(value_enum)]
+        output_mode: OutputMode,
+    },
+    /// Send output to a file, or stdout.
+    Output { filename: Option<PathBuf> },
+    /// Print the schema for a table.
+    Schema { table_name: String },
+    /// Print the parse tree for an SQL statement.
+    Parse { sql: String },
+    /// Print database content as SQL statements.
+    Dump { filter: Option<String> },
+}
+
 struct App {
     rl: Editor<EditorHelper>,
     conn: Rc<Connection>,
@@ -55,40 +89,34 @@ impl App {
     }
 
     fn execute(&mut self, request: &str) -> anyhow::Result<()> {
-        if request.starts_with('.') {
-            let parts = request.splitn(2, ' ').collect::<Vec<_>>();
-            match &parts[..] {
-                [".tables"] => self.execute_tables(),
-                [".echo", "on"] => {
-                    self.echo = true;
+        if let Some(command) = request.strip_prefix('.') {
+            let clap_args = command.splitn(2, ' ');
+            let clap_command = Commands::try_parse_from(clap_args);
+
+            match clap_command {
+                Ok(Commands::Tables) => self.execute_tables(),
+                Ok(Commands::Echo { enabled }) => {
+                    self.echo = enabled.into();
                     Ok(())
                 }
-                [".echo", "off"] => {
-                    self.echo = false;
+                Ok(Commands::Mode { output_mode }) => {
+                    self.output_mode = output_mode;
                     Ok(())
                 }
-                [".echo", ..] => anyhow::bail!("provide on or off"),
-                [".mode"] => anyhow::bail!("provide an output mode"),
-                [".mode", mode] => {
-                    self.output_mode = mode
-                        .parse()
-                        .map_err(|_| anyhow::Error::msg("unknown mode"))?;
-                    Ok(())
-                }
-                [".output"] => {
+                Ok(Commands::Output { filename: None }) => {
                     self.output_target =
                         OutputTarget::Stdout(StandardStream::stdout(ColorChoice::Auto));
                     Ok(())
                 }
-                [".output", filename] => {
+                Ok(Commands::Output {
+                    filename: Some(filename),
+                }) => {
                     self.output_target = OutputTarget::File(std::fs::File::create(filename)?);
                     Ok(())
                 }
-                [".schema"] => anyhow::bail!("provide a table name"),
-                [".schema", table_name] => self.execute_schema(table_name),
-                [".parse"] => anyhow::bail!("provide a query to parse"),
-                [".parse", sql] => {
-                    let tree = crate::sql::parse_sql(sql)?;
+                Ok(Commands::Schema { table_name }) => self.execute_schema(&table_name),
+                Ok(Commands::Parse { sql }) => {
+                    let tree = crate::sql::parse_sql(&sql)?;
                     writeln!(
                         self.output_target.start(),
                         "{}",
@@ -96,9 +124,11 @@ impl App {
                     )?;
                     Ok(())
                 }
-                [".dump"] => self.execute_dump(None),
-                [".dump", filter] => self.execute_dump(Some(filter)),
-                _ => anyhow::bail!("unknown dot command"),
+                Ok(Commands::Dump { filter }) => self.execute_dump(filter.as_deref()),
+                Err(err) => {
+                    err.print()?;
+                    Ok(())
+                }
             }
         } else {
             if self.echo {
