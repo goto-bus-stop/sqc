@@ -33,7 +33,11 @@ impl From<OnOff> for bool {
 }
 
 #[derive(Debug, Clone, Parser)]
-#[command(multicall = true, disable_help_subcommand = true, help_template = "{all-args}")]
+#[command(
+    no_binary_name = true,
+    disable_help_subcommand = true,
+    help_template = "{all-args}"
+)]
 enum DotCommand {
     /// Print this message or the help of the given subcommand(s).
     #[command(name = ".help")]
@@ -147,7 +151,7 @@ impl App {
 
         match DotCommand::try_parse_from(clap_args) {
             Ok(DotCommand::Help { subcommand: None }) => {
-                DotCommand::command().print_help()?;
+                DotCommand::command().disable_help_flag(true).print_help()?;
                 Ok(())
             }
             Ok(DotCommand::Help {
@@ -159,7 +163,9 @@ impl App {
                 if let Some(subcommand) = DotCommand::command().find_subcommand_mut(name) {
                     subcommand.print_help()?;
                 } else {
-                    DotCommand::command().print_help()?;
+                    DotCommand::command()
+                        .disable_help_subcommand(true)
+                        .print_help()?;
                 }
                 Ok(())
             }
