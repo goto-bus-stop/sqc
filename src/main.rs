@@ -4,7 +4,7 @@ use rusqlite::types::ValueRef;
 use rusqlite::Connection;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use termcolor::{ColorChoice, StandardStream};
 
@@ -66,6 +66,9 @@ enum DotCommand {
     /// Print database content as SQL statements.
     #[command(name = ".dump")]
     Dump { filter: Option<String> },
+    /// Create a full backup of a running database.
+    #[command(name = ".backup")]
+    Backup { filename: PathBuf },
 }
 
 struct App {
@@ -200,6 +203,7 @@ impl App {
                 Ok(())
             }
             Ok(DotCommand::Dump { filter }) => self.execute_dump(filter.as_deref()),
+            Ok(DotCommand::Backup { filename }) => self.execute_backup(&filename),
             Err(err) => {
                 err.print()?;
                 Ok(())
@@ -305,6 +309,23 @@ impl App {
         }
 
         writeln!(&mut output, "{}", highlighter.highlight("COMMIT;")?)?;
+        Ok(())
+    }
+
+    fn execute_backup(&mut self, filename: &Path) -> anyhow::Result<()> {
+        use indicatif::ProgressBar;
+        use rusqlite::backup::{Backup, StepResult};
+
+        let mut destination = Connection::open(filename)?;
+        let backup = Backup::new(&self.conn, &mut destination)?;
+
+        let bar = ProgressBar::new(0);
+        while backup.step(100)? != StepResult::Done {
+            let progress = backup.progress();
+            bar.set_length(progress.pagecount.try_into().unwrap());
+            bar.set_position((progress.pagecount - progress.remaining).try_into().unwrap());
+        }
+
         Ok(())
     }
 
