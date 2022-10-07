@@ -19,7 +19,7 @@ sqlformat = "0.2.0"
 termcolor = "1.1.2"
 tree-sitter = "0.20.0"
 tree-sitter-highlight = "0.20.0"
-tree-sitter-sqlite = { git = "https://github.com/goto-bus-stop/tree-sitter-sqlite", branch = "tree-sitter-0.20" }
+tree-sitter-sqlite = { git = "https://github.com/dhcmrlchtdj/tree-sitter-sqlite", rev = "0e7801b" }
 
 [features]
 

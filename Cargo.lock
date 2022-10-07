@@ -877,8 +877,8 @@ dependencies = [
 
 [[package]]
 name = "tree-sitter-sqlite"
-version = "0.0.1"
-source = "git+https://github.com/goto-bus-stop/tree-sitter-sqlite?branch=tree-sitter-0.20#3859822558259d3c84b887e365fbdde5d4bd1100"
+version = "0.0.2"
+source = "git+https://github.com/dhcmrlchtdj/tree-sitter-sqlite?rev=0e7801b#0e7801b7994025c0c288d387078bd103e923c3ff"
 dependencies = [
  "cc",
  "tree-sitter",
