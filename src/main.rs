@@ -339,11 +339,11 @@ impl App {
     ) -> anyhow::Result<Vec<Box<dyn ToSql>>> {
         let parameter_count = stmt.parameter_count();
         let mut values: Vec<Box<dyn ToSql>> = Vec::with_capacity(parameter_count);
-        for index in 0..parameter_count {
+        for index in 1..(parameter_count + 1) {
             let prompt = if let Some(name) = stmt.parameter_name(index) {
-                format!("${name}: ")
+                format!("{name}: ")
             } else {
-                format!("?{}: ", index + 1)
+                format!("?{}: ", index)
             };
             let readline = self.rl.readline(&prompt);
             match readline {
