@@ -7,7 +7,7 @@ use tree_sitter_highlight::{
     Error as HighlightError, Highlight, HighlightConfiguration, HighlightEvent, Highlighter,
 };
 
-const QUERY_NAMES: [&str; 7] = [
+const QUERY_NAMES: [&str; 8] = [
     "keyword",
     "number",
     "string",
@@ -15,6 +15,7 @@ const QUERY_NAMES: [&str; 7] = [
     "comment",
     "operator",
     "punctuation",
+    "variable",
 ];
 
 pub struct SqlHighlighter {
@@ -69,6 +70,8 @@ pub fn to_ansi(
     string.set_fg(Some(Color::Magenta)).set_bold(true);
     let mut comment = ColorSpec::new();
     comment.set_fg(Some(Color::Green)).set_bold(true);
+    let mut parameter = ColorSpec::new();
+    parameter.set_fg(Some(Color::Magenta)).set_bold(true);
 
     for event in highlights {
         match event? {
@@ -77,6 +80,7 @@ pub fn to_ansi(
                 1 => buf.set_color(&number)?,
                 2 => buf.set_color(&string)?,
                 4 => buf.set_color(&comment)?,
+                7 => buf.set_color(&parameter)?,
                 _ => (),
             },
             HighlightEvent::Source { start, end } => buf.write_all(&source[start..end])?,
