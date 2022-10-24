@@ -1,7 +1,7 @@
 use clap::{CommandFactory as _, Parser};
 use directories::ProjectDirs;
 use rusqlite::types::ValueRef;
-use rusqlite::Connection;
+use rusqlite::{Connection, Statement, ToSql};
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
 use std::path::{Path, PathBuf};
@@ -323,20 +323,48 @@ impl App {
         while backup.step(100)? != StepResult::Done {
             let progress = backup.progress();
             bar.set_length(progress.pagecount.try_into().unwrap());
-            bar.set_position((progress.pagecount - progress.remaining).try_into().unwrap());
+            bar.set_position(
+                (progress.pagecount - progress.remaining)
+                    .try_into()
+                    .unwrap(),
+            );
         }
 
         Ok(())
     }
 
-    /// Execute an UPDATE, DELETE or INSERT query.
-    fn execute_update_query(&mut self, sql: &str) -> anyhow::Result<()> {
-        let mut stmt = self.conn.prepare(sql)?;
-        if stmt.parameter_count() > 0 {
-            anyhow::bail!("cannot run queries that require bind parameters");
+    fn prompt_bind_parameters(
+        &mut self,
+        stmt: &mut Statement<'_>,
+    ) -> anyhow::Result<Vec<Box<dyn ToSql>>> {
+        let parameter_count = stmt.parameter_count();
+        let mut values: Vec<Box<dyn ToSql>> = Vec::with_capacity(parameter_count);
+        for index in 1..(parameter_count + 1) {
+            let prompt = if let Some(name) = stmt.parameter_name(index) {
+                format!("{name}: ")
+            } else {
+                format!("?{}: ", index)
+            };
+            let readline = self.rl.readline(&prompt);
+            match readline {
+                Ok(value) => values.push(Box::new(value)),
+                Err(ReadlineError::Interrupted | ReadlineError::Eof) => {
+                    return Err(anyhow::Error::msg("Cancelled query"))
+                }
+                Err(err) => return Err(err.into()),
+            }
         }
 
-        let changes = stmt.execute([])?;
+        Ok(values)
+    }
+
+    /// Execute an UPDATE, DELETE or INSERT query.
+    fn execute_update_query(&mut self, sql: &str) -> anyhow::Result<()> {
+        let conn = self.conn.clone();
+        let mut stmt = conn.prepare(sql)?;
+        let values = self.prompt_bind_parameters(&mut stmt)?;
+
+        let changes = stmt.execute(rusqlite::params_from_iter(values))?;
         println!("{} changes", changes);
 
         Ok(())
@@ -344,22 +372,20 @@ impl App {
 
     /// Execute a query that does not return anything.
     fn execute_silent_query(&mut self, sql: &str) -> anyhow::Result<()> {
-        let mut stmt = self.conn.prepare(sql)?;
-        if stmt.parameter_count() > 0 {
-            anyhow::bail!("cannot run queries that require bind parameters");
-        }
+        let conn = self.conn.clone();
+        let mut stmt = conn.prepare(sql)?;
+        let values = self.prompt_bind_parameters(&mut stmt)?;
 
-        let _ = stmt.execute([])?;
+        let _ = stmt.execute(rusqlite::params_from_iter(values))?;
 
         Ok(())
     }
 
     /// Execute a SELECT query.
     fn execute_select_query(&mut self, sql: &str) -> anyhow::Result<()> {
-        let mut stmt = self.conn.prepare(sql)?;
-        if stmt.parameter_count() > 0 {
-            anyhow::bail!("cannot run queries that require bind parameters");
-        }
+        let conn = self.conn.clone();
+        let mut stmt = conn.prepare(sql)?;
+        let values = self.prompt_bind_parameters(&mut stmt)?;
 
         let highlighter = &self.rl.helper().unwrap().highlighter;
         let mut output = self.output_target.start();
@@ -367,7 +393,7 @@ impl App {
             .output_mode
             .output_rows(&stmt, highlighter, &mut output);
 
-        let mut query = stmt.query([])?;
+        let mut query = stmt.query(rusqlite::params_from_iter(values))?;
         while let Some(row) = query.next()? {
             output_rows.add_row(row)?;
         }
