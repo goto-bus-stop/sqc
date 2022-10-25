@@ -55,6 +55,19 @@ impl Completions {
         tables.unwrap()
     }
 
+    fn get_pragma_list(&self) -> Vec<String> {
+        let mut stmt = self
+            .connection
+            .prepare_cached("PRAGMA pragma_list")
+            .unwrap();
+        let tables = stmt
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .collect::<Result<Vec<String>, _>>();
+
+        tables.unwrap()
+    }
+
     fn parse_names<'a>(&self, tree: &ParsedSql<'a>) -> QueryNames<'a> {
         let query = tree_sitter_query!("
             (with_clause (WITH) (common_table_expression (identifier) @cte-name (AS) (select_stmt) @cte)) @whole-cte
@@ -148,12 +161,20 @@ impl Completions {
                     }
                     (_left, _right) => {
                         // Nice for debugging
-                        // return vec![(node.end_byte(), format!("   -> {} {}", left, right))]
+                        // return vec![(node.end_byte(), format!("   -> {} {}", _left, _right))]
                     }
                 },
                 (Some(parent), Some(prev)) => match (node.kind(), parent.kind(), prev.kind()) {
+                    ("identifier", "pragma_stmt", "PRAGMA") => {
+                        return self
+                            .get_pragma_list()
+                            .into_iter()
+                            .filter(|item| starts_with(item, content))
+                            .map(|item| (node.start_byte(), item))
+                            .collect();
+                    }
                     (_left, _mid, _right) => {
-                        // return vec![(node.end_byte(), format!("   -> {} {} {}", left, mid, right))]
+                        // return vec![(node.end_byte(), format!("   -> {} {} {}", _left, _mid, _right))]
                     }
                 },
                 (None, Some(_prev)) => (),
