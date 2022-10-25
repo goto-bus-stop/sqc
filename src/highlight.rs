@@ -28,7 +28,7 @@ impl SqlHighlighter {
         let highlighter = Highlighter::new();
         let mut sql_config = HighlightConfiguration::new(
             tree_sitter_sqlite::language(),
-            include_str!("../queries/highlights.scm"),
+            tree_sitter_sqlite::HIGHLIGHTS_QUERY,
             "",
             "",
         )
