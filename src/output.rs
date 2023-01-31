@@ -54,12 +54,12 @@ pub enum OutputMode {
 }
 
 impl OutputMode {
-    pub fn output_rows<'h>(
+    pub fn output_rows<'o>(
         self,
         statement: &Statement<'_>,
-        highlight: &'h SqlHighlighter,
-        output: &'h mut dyn WriteColor,
-    ) -> Box<dyn OutputRows + 'h> {
+        highlight: &'o SqlHighlighter,
+        output: &'o mut dyn WriteColor,
+    ) -> Box<dyn OutputRows + 'o> {
         match self {
             OutputMode::Null => Box::new(NullOutput),
             OutputMode::Table => Box::new(TableOutput::new(statement, output)),
@@ -97,32 +97,41 @@ impl OutputRows for NullOutput {
     }
 }
 
-pub struct TableOutput<'a> {
+struct Column {
+    name: String,
+    decl_type: Option<String>,
+}
+pub struct TableOutput<'o> {
     table: Table,
-    num_columns: usize,
-    output: &'a mut dyn WriteColor,
+    columns: Vec<Column>,
+    output: &'o mut dyn WriteColor,
 }
 
-impl<'a> TableOutput<'a> {
-    pub fn new(statement: &Statement<'_>, output: &'a mut dyn WriteColor) -> Self {
+impl<'o> TableOutput<'o> {
+    pub fn new<'s>(statement: &'s Statement<'s>, output: &'o mut dyn WriteColor) -> Self {
         let mut table = Table::new();
         table.load_preset("││──╞══╡│    ──┌┐└┘");
-        let names = statement.column_names();
-        let num_columns = names.len();
-        table.set_header(names);
+        let columns = statement.columns();
+        table.set_header(columns.iter().map(|column| column.name()));
         Self {
             table,
-            num_columns,
+            columns: columns.into_iter().map(|column| Column {
+                name: column.name().to_string(),
+                decl_type: column.decl_type().map(|ty| ty.to_string()),
+            }).collect(),
             output,
         }
     }
 }
 
-fn value_to_cell(value: ValueRef) -> Cell {
+fn value_to_cell(value: ValueRef, decl_type: Option<&'_ str>) -> Cell {
     match value {
         ValueRef::Null => Cell::new("NULL").fg(Color::DarkGrey),
         ValueRef::Integer(n) => Cell::new(n).fg(Color::Yellow),
         ValueRef::Real(n) => Cell::new(n).fg(Color::Yellow),
+        ValueRef::Text(json) if decl_type.map(|text| text.to_lowercase()).as_deref() == Some("json") => {
+            Cell::new(String::from_utf8_lossy(json))
+        },
         ValueRef::Text(text) => Cell::new(String::from_utf8_lossy(text)),
         ValueRef::Blob(blob) => {
             Cell::new(blob.iter().map(|byte| format!("{:02x}", byte)).join(" "))
@@ -130,7 +139,7 @@ fn value_to_cell(value: ValueRef) -> Cell {
     }
 }
 
-fn value_to_cell_nocolor(value: ValueRef) -> Cell {
+fn value_to_cell_nocolor(value: ValueRef, _decl_type: Option<&'_ str>) -> Cell {
     match value {
         ValueRef::Null => Cell::new("NULL"),
         ValueRef::Integer(n) => Cell::new(n),
@@ -142,15 +151,19 @@ fn value_to_cell_nocolor(value: ValueRef) -> Cell {
     }
 }
 
-impl<'a> OutputRows for TableOutput<'a> {
+impl<'o> OutputRows for TableOutput<'o> {
     fn add_row(&mut self, row: &Row<'_>) -> anyhow::Result<()> {
-        let table_row = (0..self.num_columns)
+        let table_row = self.columns
+            .iter()
+            .enumerate()
             // We are iterating over column_count() so this should never fail
-            .map(|index| row.get_ref_unwrap(index))
-            .map(if self.output.supports_color() {
-                value_to_cell
-            } else {
-                value_to_cell_nocolor
+            .map(|(index, column)| {
+                let value = row.get_ref_unwrap(index);
+                if self.output.supports_color() {
+                    value_to_cell(value, column.decl_type.as_deref())
+                } else {
+                    value_to_cell_nocolor(value, column.decl_type.as_deref())
+                }
             });
         self.table.add_row(table_row);
         Ok(())
