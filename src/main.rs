@@ -3,6 +3,7 @@ use directories::ProjectDirs;
 use rusqlite::types::ValueRef;
 use rusqlite::{Connection, Statement, ToSql};
 use rustyline::error::ReadlineError;
+use rustyline::history::DefaultHistory;
 use rustyline::Editor;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -72,7 +73,7 @@ enum DotCommand {
 }
 
 struct App {
-    rl: Editor<EditorHelper>,
+    rl: Editor<EditorHelper, DefaultHistory>,
     conn: Rc<Connection>,
     output_target: OutputTarget,
     output_mode: OutputMode,
@@ -89,7 +90,7 @@ impl App {
             let readline = self.rl.readline(&prompt);
             match readline {
                 Ok(line) => {
-                    self.rl.add_history_entry(line.as_str());
+                    self.rl.add_history_entry(line.as_str())?;
                     if let Err(err) = self.execute(line.as_str()) {
                         println!("Error: {:?}", err);
                     }
