@@ -67,6 +67,9 @@ enum DotCommand {
     /// Print database content as SQL statements.
     #[command(name = ".dump")]
     Dump { filter: Option<String> },
+    /// Read SQL statements from a file.
+    #[command(name = ".read")]
+    Read { filename: PathBuf },
     /// Create a full backup of a running database.
     #[command(name = ".backup")]
     Backup { filename: PathBuf },
@@ -204,6 +207,7 @@ impl App {
                 Ok(())
             }
             Ok(DotCommand::Dump { filter }) => self.execute_dump(filter.as_deref()),
+            Ok(DotCommand::Read { filename }) => self.execute_read(&filename),
             Ok(DotCommand::Backup { filename }) => self.execute_backup(&filename),
             Err(err) => {
                 err.print()?;
@@ -310,6 +314,12 @@ impl App {
         }
 
         writeln!(&mut output, "{}", highlighter.highlight("COMMIT;")?)?;
+        Ok(())
+    }
+
+    fn execute_read(&mut self, filename: &Path) -> anyhow::Result<()> {
+        let sql = std::fs::read_to_string(filename)?;
+        self.execute(&sql)?;
         Ok(())
     }
 
