@@ -51,7 +51,7 @@ impl Highlighter for EditorHelper {
             .unwrap_or(Cow::Borrowed(hint))
     }
 
-    fn highlight_char(&self, line: &str, _pos: usize) -> bool {
+    fn highlight_char(&self, line: &str, _pos: usize, _: bool) -> bool {
         !line.starts_with('.')
     }
 }
