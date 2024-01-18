@@ -747,7 +747,6 @@ dependencies = [
  "directories",
  "humansize",
  "indicatif",
- "itertools",
  "once_cell",
  "rusqlite",
  "rustyline",

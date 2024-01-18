@@ -435,7 +435,7 @@ fn main() -> anyhow::Result<()> {
     }
 
     let conn = Rc::new(match &opts.filename {
-        Some(filename) => Connection::open(&filename)?,
+        Some(filename) => Connection::open(filename)?,
         None => Connection::open_in_memory()?,
     });
 

@@ -1,9 +1,9 @@
 use crate::highlight::SqlHighlighter;
 use comfy_table::{Cell, Color, ContentArrangement, Table};
 use csv::{ByteRecord, Writer, WriterBuilder};
-use itertools::Itertools;
 use rusqlite::types::ValueRef;
 use rusqlite::{Row, Statement};
+use std::fmt::Write as _;
 use std::fs::File;
 use std::io::Write;
 use std::process::{Command, Stdio};
@@ -118,15 +118,24 @@ impl<'a> TableOutput<'a> {
     }
 }
 
+fn to_hex_string(bytes: &[u8]) -> String {
+    let mut s = bytes
+        .iter()
+        .fold(String::with_capacity(bytes.len() * 3), |mut output, b| {
+            _ = write!(output, "{b:02x} ");
+            output
+        });
+    s.pop();
+    s
+}
+
 fn value_to_cell(value: ValueRef) -> Cell {
     match value {
         ValueRef::Null => Cell::new("NULL").fg(Color::DarkGrey),
         ValueRef::Integer(n) => Cell::new(n).fg(Color::Yellow),
         ValueRef::Real(n) => Cell::new(n).fg(Color::Yellow),
         ValueRef::Text(text) => Cell::new(String::from_utf8_lossy(text)),
-        ValueRef::Blob(blob) => {
-            Cell::new(blob.iter().map(|byte| format!("{:02x}", byte)).join(" "))
-        }
+        ValueRef::Blob(blob) => Cell::new(to_hex_string(blob)),
     }
 }
 
@@ -136,9 +145,7 @@ fn value_to_cell_nocolor(value: ValueRef) -> Cell {
         ValueRef::Integer(n) => Cell::new(n),
         ValueRef::Real(n) => Cell::new(n),
         ValueRef::Text(text) => Cell::new(String::from_utf8_lossy(text)),
-        ValueRef::Blob(blob) => {
-            Cell::new(blob.iter().map(|byte| format!("{:02x}", byte)).join(" "))
-        }
+        ValueRef::Blob(blob) => Cell::new(to_hex_string(blob)),
     }
 }
 
@@ -249,6 +256,14 @@ impl<'a> SqlOutput<'a> {
     }
 }
 
+fn to_sql_hex_string(bytes: &[u8], output: &mut impl std::fmt::Write) {
+    let _ = write!(output, "X'");
+    for b in bytes {
+        _ = write!(output, "{b:02x}");
+    }
+    let _ = write!(output, "'");
+}
+
 impl<'a> OutputRows for SqlOutput<'a> {
     fn add_row(&mut self, row: &Row<'_>) -> anyhow::Result<()> {
         let mut sql = format!("INSERT INTO {} VALUES(", &self.table_name);
@@ -264,14 +279,7 @@ impl<'a> OutputRows for SqlOutput<'a> {
                 ValueRef::Text(text) => {
                     write!(&mut sql, "'{}'", std::str::from_utf8(text).unwrap()).unwrap()
                 }
-                ValueRef::Blob(blob) => write!(
-                    &mut sql,
-                    "X'{}'",
-                    blob.iter()
-                        .map(|byte| format!("{:02x}", byte))
-                        .collect::<String>()
-                )
-                .unwrap(),
+                ValueRef::Blob(blob) => to_sql_hex_string(blob, &mut sql),
             }
         }
         sql.push_str(");");

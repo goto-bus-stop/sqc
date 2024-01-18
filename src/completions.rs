@@ -119,15 +119,8 @@ impl Completions {
         let root = tree.tree.root_node();
         let max_lookbehind = 5.min(pos);
         let relevant_node = (0..max_lookbehind).find_map(|offset| {
-            if let Some(node) = root.descendant_for_byte_range(pos - offset, pos - offset) {
-                if node.kind() == "sql_stmt_list" {
-                    None
-                } else {
-                    Some(node)
-                }
-            } else {
-                None
-            }
+            root.descendant_for_byte_range(pos - offset, pos - offset)
+                .filter(|node| node.kind() != "sql_stmt_list")
         });
 
         if let Some(node) = relevant_node {

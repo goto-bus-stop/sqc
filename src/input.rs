@@ -66,7 +66,7 @@ impl Completer for EditorHelper {
         _ctx: &Context<'_>,
     ) -> rustyline::Result<(usize, Vec<Self::Candidate>)> {
         let results = self.completions.get_completions(line, pos);
-        if let Some(first) = results.get(0) {
+        if let Some(first) = results.first() {
             Ok((first.0, results.into_iter().map(|item| item.1).collect()))
         } else {
             Ok((0, vec![]))
