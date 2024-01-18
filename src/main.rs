@@ -12,6 +12,7 @@ use termcolor::{ColorChoice, StandardStream};
 #[macro_use]
 mod macros;
 mod completions;
+mod functions;
 mod highlight;
 mod input;
 mod output;
@@ -439,6 +440,7 @@ fn main() -> anyhow::Result<()> {
     });
 
     rusqlite::vtab::csvtab::load_module(&conn)?;
+    functions::install(&conn)?;
 
     let completions = Completions::new(Rc::clone(&conn));
 
