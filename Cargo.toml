@@ -13,9 +13,9 @@ directories = "5.0.0"
 humansize = "2.1.3"
 indicatif = "0.17.1"
 once_cell = "1.8.0"
-rusqlite = { version = "0.31.0", features = ["bundled", "backup", "column_decltype", "csvtab", "functions", "vtab"] }
-rustyline = "14.0.0"
-sqlformat = "0.2.0"
+rusqlite = { version = "0.32.0", features = ["bundled", "backup", "column_decltype", "csvtab", "functions", "vtab"] }
+rustyline = "15.0.0"
+sqlformat = "0.3.0"
 termcolor = "1.1.2"
 tree-sitter = "0.20.0"
 tree-sitter-highlight = "0.20.0"

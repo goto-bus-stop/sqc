@@ -1,7 +1,7 @@
 use crate::completions::Completions;
 use crate::highlight::SqlHighlighter;
 use rustyline::completion::Completer;
-use rustyline::highlight::Highlighter;
+use rustyline::highlight::{CmdKind, Highlighter};
 use rustyline::hint::Hinter;
 use rustyline::validate::Validator;
 use rustyline::{Context, Helper};
@@ -51,7 +51,7 @@ impl Highlighter for EditorHelper {
             .unwrap_or(Cow::Borrowed(hint))
     }
 
-    fn highlight_char(&self, line: &str, _pos: usize, _: bool) -> bool {
+    fn highlight_char(&self, line: &str, _pos: usize, _: CmdKind) -> bool {
         !line.starts_with('.')
     }
 }

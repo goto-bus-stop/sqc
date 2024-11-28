@@ -115,7 +115,7 @@ impl App {
             self.execute_dot_command(request)
         } else {
             if self.echo {
-                let formatted = sqlformat::format(request, &Default::default(), Default::default());
+                let formatted = sqlformat::format(request, &Default::default(), &Default::default());
                 let mut output = self.output_target.start();
                 let highlighter = &self.rl.helper().unwrap().highlighter;
                 let highlighted = if output.supports_color() {
@@ -252,7 +252,7 @@ impl App {
         };
 
         let highlighter = &self.rl.helper().unwrap().highlighter;
-        let formatted = sqlformat::format(sql, &Default::default(), Default::default());
+        let formatted = sqlformat::format(sql, &Default::default(), &Default::default());
 
         let mut output = self.output_target.start();
         let highlighted = if output.supports_color() {
@@ -296,7 +296,7 @@ impl App {
             let name: String = row.get_unwrap(0);
             let sql: String = row.get_unwrap(1);
 
-            let mut formatted = sqlformat::format(&sql, &Default::default(), Default::default());
+            let mut formatted = sqlformat::format(&sql, &Default::default(), &Default::default());
             formatted.push(';');
             writeln!(&mut output, "{}", highlighter.highlight(&formatted)?)?;
 
