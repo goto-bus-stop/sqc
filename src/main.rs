@@ -475,5 +475,11 @@ fn main() -> anyhow::Result<()> {
         }
     }
 
+    drop(app.rl);
+
+    let conn = Rc::into_inner(app.conn).expect("multiple connection references are alive");
+    conn.pragma_query(None, "wal_checkpoint", |_| Ok(()))?;
+    conn.close().map_err(|(_conn, err)| err)?;
+
     Ok(())
 }
